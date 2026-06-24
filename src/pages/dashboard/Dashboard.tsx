@@ -7,7 +7,7 @@ import { getNotifications, markAsRead, markAllAsRead } from '../../services/noti
 import {
   Video, Link2, LogOut, Calendar, Clock, Users,
   Trash2, ArrowRight, Loader2, Bell, Search,
-  Sun, Moon, Check, X, ChevronRight
+  Sun, Moon, Check, ChevronRight, Brain
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -24,8 +24,6 @@ const Dashboard = () => {
   const [meetingCode, setMeetingCode] = useState('');
   const [error, setError] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-
-  // Notifications
   const [notifications, setNotifications] = useState<any[]>([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -36,7 +34,6 @@ const Dashboard = () => {
     fetchNotifications();
   }, []);
 
-  // Notification dropdown bahar click pe close karo
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
@@ -72,9 +69,7 @@ const Dashboard = () => {
   const handleMarkAsRead = async (id: string) => {
     try {
       await markAsRead(id);
-      setNotifications(prev =>
-        prev.map(n => n._id === id ? { ...n, isRead: true } : n)
-      );
+      setNotifications(prev => prev.map(n => n._id === id ? { ...n, isRead: true } : n));
       setUnreadCount(prev => Math.max(0, prev - 1));
     } catch (err) {}
   };
@@ -131,15 +126,9 @@ const Dashboard = () => {
   );
 
   const getStatusBadge = (status: string) => {
-    if (status === 'active') return isDark
-      ? 'bg-green-900 text-green-300'
-      : 'bg-green-100 text-green-700';
-    if (status === 'ended') return isDark
-      ? 'bg-gray-700 text-gray-400'
-      : 'bg-gray-100 text-gray-500';
-    return isDark
-      ? 'bg-blue-900 text-blue-300'
-      : 'bg-blue-100 text-blue-700';
+    if (status === 'active') return isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-700';
+    if (status === 'ended') return isDark ? 'bg-gray-700 text-gray-400' : 'bg-gray-100 text-gray-500';
+    return isDark ? 'bg-blue-900 text-blue-300' : 'bg-blue-100 text-blue-700';
   };
 
   const getNotifIcon = (type: string) => {
@@ -158,7 +147,9 @@ const Dashboard = () => {
   const cardBg = isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
   const textSecondary = isDark ? 'text-gray-400' : 'text-gray-500';
-  const inputBg = isDark ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500' : 'bg-white border-gray-200 text-gray-900';
+  const inputBg = isDark
+    ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500'
+    : 'bg-white border-gray-200 text-gray-900';
 
   return (
     <div className={`min-h-screen ${bg} transition-colors duration-200`}>
@@ -166,6 +157,8 @@ const Dashboard = () => {
       {/* Navbar */}
       <nav className={`${cardBg} border-b sticky top-0 z-20 shadow-sm px-6 py-4`}>
         <div className="max-w-6xl mx-auto flex items-center justify-between">
+
+          {/* Logo */}
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
               <span className="text-lg">🤖</span>
@@ -173,14 +166,18 @@ const Dashboard = () => {
             <h1 className={`text-xl font-bold ${textPrimary}`}>IntellMeet</h1>
           </div>
 
+          {/* Right side */}
           <div className="flex items-center gap-3">
+
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
               className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
-                isDark ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                isDark
+                  ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
-              title={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+              title={isDark ? 'Light mode' : 'Dark mode'}
             >
               {isDark ? <Sun size={18} /> : <Moon size={18} />}
             </button>
@@ -190,8 +187,10 @@ const Dashboard = () => {
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
                 className={`w-9 h-9 rounded-xl flex items-center justify-center transition relative ${
-                  isDark ? 'bg-gray-800 text-gray-300 hover:bg-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                } ${showNotifications ? (isDark ? 'bg-gray-700' : 'bg-gray-200') : ''}`}
+                  isDark
+                    ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
+                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                }`}
               >
                 <Bell size={18} />
                 {unreadCount > 0 && (
@@ -206,7 +205,8 @@ const Dashboard = () => {
                 <div className={`absolute right-0 top-12 w-80 ${cardBg} border rounded-2xl shadow-xl z-50 overflow-hidden`}>
                   <div className={`p-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'} flex items-center justify-between`}>
                     <span className={`font-semibold text-sm ${textPrimary}`}>
-                      Notifications {unreadCount > 0 && <span className="text-blue-500">({unreadCount})</span>}
+                      Notifications
+                      {unreadCount > 0 && <span className="text-blue-500 ml-1">({unreadCount})</span>}
                     </span>
                     {unreadCount > 0 && (
                       <button
@@ -230,7 +230,9 @@ const Dashboard = () => {
                           key={notif._id}
                           onClick={() => !notif.isRead && handleMarkAsRead(notif._id)}
                           className={`p-4 border-b cursor-pointer transition ${
-                            isDark ? 'border-gray-800 hover:bg-gray-800' : 'border-gray-50 hover:bg-gray-50'
+                            isDark
+                              ? 'border-gray-800 hover:bg-gray-800'
+                              : 'border-gray-50 hover:bg-gray-50'
                           } ${!notif.isRead ? (isDark ? 'bg-blue-950' : 'bg-blue-50') : ''}`}
                         >
                           <div className="flex items-start gap-3">
@@ -260,17 +262,27 @@ const Dashboard = () => {
               )}
             </div>
 
-            {/* User avatar */}
-            <div className={`flex items-center gap-2 ${isDark ? 'bg-gray-800' : 'bg-gray-100'} rounded-xl px-3 py-2`}>
-              <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">
-                {user?.name?.charAt(0).toUpperCase()}
-              </div>
+            {/* User Profile — SIRF EK */}
+            <button
+              onClick={() => navigate('/profile')}
+              className={`flex items-center gap-2 rounded-xl px-3 py-2 transition ${
+                isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
+              }`}
+            >
+              {user?.avatar ? (
+                <img src={user.avatar} alt="avatar" className="w-7 h-7 rounded-lg object-cover" />
+              ) : (
+                <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">
+                  {user?.name?.charAt(0).toUpperCase()}
+                </div>
+              )}
               <span className={`text-sm font-medium ${textPrimary}`}>{user?.name}</span>
-            </div>
+            </button>
 
+            {/* Logout */}
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-950 dark:hover:bg-red-900 px-3 py-2 rounded-xl transition"
+              className="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-xl transition"
             >
               <LogOut size={16} /> Logout
             </button>
@@ -282,14 +294,20 @@ const Dashboard = () => {
 
         {/* Welcome Banner */}
         <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 mb-6 text-white shadow-lg">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
               <h2 className="text-2xl font-bold mb-1">
                 Good day, {user?.name?.split(' ')[0]}! 👋
               </h2>
               <p className="text-blue-100 text-sm">Ready to collaborate? Start or join a meeting.</p>
+              <button
+                onClick={() => navigate('/post-meeting')}
+                className="mt-3 flex items-center gap-2 bg-white bg-opacity-15 hover:bg-opacity-25 text-white text-sm px-4 py-2 rounded-xl transition"
+              >
+                <Brain size={16} /> AI Meeting Intelligence
+              </button>
             </div>
-            <div className="hidden md:flex items-center gap-3">
+            <div className="flex items-center gap-3">
               <div className="bg-white bg-opacity-15 rounded-xl px-4 py-2 text-center">
                 <div className="text-2xl font-bold">{meetings.length}</div>
                 <div className="text-xs text-blue-100">Total</div>
@@ -309,44 +327,73 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-
+              {/* Quick Links */}
+<div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+  {[
+    { label: 'Workspace', icon: '📋', path: '/workspace', color: 'from-blue-500 to-blue-600' },
+    { label: 'Tasks', icon: '✅', path: '/tasks', color: 'from-green-500 to-green-600' },
+    { label: 'AI Intelligence', icon: '🤖', path: '/post-meeting', color: 'from-purple-500 to-purple-600' },
+    { label: 'Profile', icon: '👤', path: '/profile', color: 'from-orange-500 to-orange-600' }
+  ].map(link => (
+    <button
+      key={link.path}
+      onClick={() => navigate(link.path)}
+      className={`bg-gradient-to-r ${link.color} text-white p-4 rounded-2xl text-left hover:opacity-90 transition shadow-sm`}
+    >
+      <div className="text-2xl mb-1">{link.icon}</div>
+      <div className="font-semibold text-sm">{link.label}</div>
+    </button>
+  ))}
+</div>
         {/* Action Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <button
             onClick={() => { setShowCreate(true); setShowJoin(false); setError(''); }}
             className={`p-6 rounded-2xl text-left transition border-2 ${
               showCreate
-                ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-200'
+                ? 'bg-blue-600 border-blue-600 text-white shadow-lg'
                 : `${cardBg} border hover:border-blue-300 hover:shadow-md`
             }`}
           >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${showCreate ? 'bg-white bg-opacity-20' : isDark ? 'bg-blue-900' : 'bg-blue-100'}`}>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${
+              showCreate ? 'bg-white bg-opacity-20' : isDark ? 'bg-blue-900' : 'bg-blue-100'
+            }`}>
               <Video size={24} className={showCreate ? 'text-white' : 'text-blue-600'} />
             </div>
-            <div className={`font-bold text-lg mb-1 ${showCreate ? 'text-white' : textPrimary}`}>New Meeting</div>
-            <div className={`text-sm ${showCreate ? 'text-blue-100' : textSecondary}`}>Start an instant video meeting</div>
+            <div className={`font-bold text-lg mb-1 ${showCreate ? 'text-white' : textPrimary}`}>
+              New Meeting
+            </div>
+            <div className={`text-sm ${showCreate ? 'text-blue-100' : textSecondary}`}>
+              Start an instant video meeting
+            </div>
           </button>
 
           <button
             onClick={() => { setShowJoin(true); setShowCreate(false); setError(''); }}
             className={`p-6 rounded-2xl text-left transition border-2 ${
               showJoin
-                ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg shadow-indigo-200'
+                ? 'bg-indigo-600 border-indigo-600 text-white shadow-lg'
                 : `${cardBg} border hover:border-indigo-300 hover:shadow-md`
             }`}
           >
-            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${showJoin ? 'bg-white bg-opacity-20' : isDark ? 'bg-indigo-900' : 'bg-indigo-100'}`}>
+            <div className={`w-12 h-12 rounded-xl flex items-center justify-center mb-4 ${
+              showJoin ? 'bg-white bg-opacity-20' : isDark ? 'bg-indigo-900' : 'bg-indigo-100'
+            }`}>
               <Link2 size={24} className={showJoin ? 'text-white' : 'text-indigo-600'} />
             </div>
-            <div className={`font-bold text-lg mb-1 ${showJoin ? 'text-white' : textPrimary}`}>Join Meeting</div>
-            <div className={`text-sm ${showJoin ? 'text-indigo-100' : textSecondary}`}>Enter a meeting code to join</div>
+            <div className={`font-bold text-lg mb-1 ${showJoin ? 'text-white' : textPrimary}`}>
+              Join Meeting
+            </div>
+            <div className={`text-sm ${showJoin ? 'text-indigo-100' : textSecondary}`}>
+              Enter a meeting code to join
+            </div>
           </button>
         </div>
 
         {/* Error */}
         {error && (
-          <div className="bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 p-4 rounded-xl mb-4 text-sm flex items-center gap-2">
-            <span></span> {error}
+          <div className="bg-red-50 border border-red-200 text-red-600 p-4 rounded-xl mb-4 text-sm flex items-center gap-2">
+            ⚠️ {error}
           </div>
         )}
 
@@ -472,7 +519,6 @@ const Dashboard = () => {
                     </div>
 
                     <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition">
-                      {/* Ended meeting mein Join button nahi dikhayenge */}
                       {meeting.status !== 'ended' ? (
                         <button
                           onClick={() => navigate(`/meeting/${meeting._id}`)}

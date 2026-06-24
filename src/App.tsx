@@ -1,3 +1,5 @@
+import PostMeeting from './pages/meeting/PostMeeting';
+import Profile from './pages/profile/Profile';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -41,6 +43,12 @@ function App() {
           <Route path="/meeting/:id" element={<ProtectedRoute><MeetingRoom /></ProtectedRoute>} />
           <Route path="/" element={<Navigate to="/dashboard" />} />
           <Route path="*" element={<Navigate to="/dashboard" />} />
+          <Route path="/post-meeting" element={
+  <ProtectedRoute><PostMeeting /></ProtectedRoute>
+} />
+          <Route path="/profile" element={
+  <ProtectedRoute><Profile /></ProtectedRoute>
+} />
         </Routes>
       </BrowserRouter>
     </QueryClientProvider>
