@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Brain, FileText, CheckSquare, ArrowLeft, 
+import {
+  Brain, FileText, CheckSquare, ArrowLeft,
   Loader2, Copy, Check, MessageSquare, Send
 } from 'lucide-react';
 import useThemeStore from '../../store/themeStore';
-import { generateMeetingSummary, extractActionItems, askAI } from '../../services/aiService';
+import api from '../../services/api';
 
 const PostMeeting = () => {
   const navigate = useNavigate();
@@ -20,6 +20,7 @@ const PostMeeting = () => {
   const [aiLoading, setAiLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<'summary' | 'actions' | 'ai'>('summary');
+  const [error, setError] = useState('');
 
   const bg = isDark ? 'bg-gray-950' : 'bg-gray-50';
   const cardBg = isDark ? 'bg-gray-900 border-gray-800' : 'bg-white border-gray-200';
@@ -32,13 +33,39 @@ const PostMeeting = () => {
   const handleGenerateSummary = async () => {
     if (!transcript.trim()) return;
     setLoading(true);
+    setError('');
+    setSummary(null);
+    setActionItems([]);
+
     try {
-      const result = await generateMeetingSummary('', transcript);
-      setSummary(result);
-      const items = await extractActionItems(transcript, []);
-      setActionItems(items.actionItems || []);
+      // Summary generate karo
+      const summaryRes = await api.post('/ai/summary', {
+        transcript,
+        meetingId: ''
+      });
+
+      if (summaryRes.data.success) {
+        setSummary(summaryRes.data);
+      }
+
+      // Action items extract karo
+      try {
+        const actionRes = await api.post('/ai/action-items', {
+          transcript,
+          participants: []
+        });
+        if (actionRes.data.success) {
+          setActionItems(actionRes.data.actionItems || []);
+        }
+      } catch (e) {
+        console.log('Action items extraction failed');
+      }
+
+      setActiveTab('summary');
+
     } catch (err: any) {
-      console.error('AI Error:', err.message);
+      console.log('AI Error:', err.message);
+      setError(err.response?.data?.message || 'AI service error. Check your API key in .env file.');
     } finally {
       setLoading(false);
     }
@@ -48,8 +75,13 @@ const PostMeeting = () => {
     if (!aiQuestion.trim()) return;
     setAiLoading(true);
     try {
-      const result = await askAI(aiQuestion, transcript);
-      setAiAnswer(result.answer);
+      const res = await api.post('/ai/chat', {
+        question: aiQuestion,
+        context: transcript
+      });
+      if (res.data.success) {
+        setAiAnswer(res.data.answer);
+      }
     } catch (err) {
       setAiAnswer('Sorry, AI is not available right now.');
     } finally {
@@ -64,9 +96,9 @@ const PostMeeting = () => {
   };
 
   const getPriorityColor = (priority: string) => {
-    if (priority === 'high') return 'bg-red-500 bg-opacity-20 text-red-400';
-    if (priority === 'medium') return 'bg-yellow-500 bg-opacity-20 text-yellow-400';
-    return 'bg-green-500 bg-opacity-20 text-green-400';
+    if (priority === 'high') return isDark ? 'bg-red-900 text-red-300' : 'bg-red-100 text-red-600';
+    if (priority === 'medium') return isDark ? 'bg-yellow-900 text-yellow-300' : 'bg-yellow-100 text-yellow-600';
+    return isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-600';
   };
 
   return (
@@ -85,7 +117,8 @@ const PostMeeting = () => {
           </button>
           <div>
             <h1 className={`text-lg font-bold ${textPrimary} flex items-center gap-2`}>
-              <Brain size={20} className="text-purple-400" /> AI Meeting Intelligence
+              <Brain size={20} className="text-purple-400" />
+              AI Meeting Intelligence
             </h1>
             <p className={`text-xs ${textSecondary}`}>Generate summary, action items and insights</p>
           </div>
@@ -93,6 +126,13 @@ const PostMeeting = () => {
       </div>
 
       <div className="max-w-4xl mx-auto p-6 space-y-6">
+
+        {/* Error */}
+        {error && (
+          <div className="bg-red-500 bg-opacity-10 border border-red-500 border-opacity-30 text-red-400 p-4 rounded-xl text-sm flex items-center gap-2">
+            ⚠️ {error}
+          </div>
+        )}
 
         {/* Transcript Input */}
         <div className={`${cardBg} border rounded-2xl p-6`}>
@@ -102,18 +142,21 @@ const PostMeeting = () => {
           <textarea
             value={transcript}
             onChange={(e) => setTranscript(e.target.value)}
-            placeholder="Paste your meeting transcript here... (what was discussed, who said what, etc.)"
-            rows={8}
+            placeholder="Paste your meeting transcript here...&#10;&#10;Example:&#10;Rahul: Good morning everyone. Let's discuss Q2 planning.&#10;Priya: I will handle the frontend design by Friday.&#10;Amit: I will complete the backend API by Monday."
+            rows={10}
             className={`w-full border rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none ${inputBg}`}
           />
           <div className="flex items-center justify-between mt-3">
             <span className={`text-xs ${textSecondary}`}>{transcript.length} characters</span>
             <button
               onClick={handleGenerateSummary}
-              disabled={loading || !transcript.trim()}
+              disabled={loading || transcript.trim().length < 20}
               className="bg-purple-600 text-white px-6 py-2.5 rounded-xl hover:bg-purple-500 disabled:opacity-50 transition flex items-center gap-2 font-medium"
             >
-              {loading ? <><Loader2 size={16} className="animate-spin" /> Analyzing...</> : <><Brain size={16} /> Analyze with AI</>}
+              {loading
+                ? <><Loader2 size={16} className="animate-spin" /> Analyzing...</>
+                : <><Brain size={16} /> Analyze with AI</>
+              }
             </button>
           </div>
         </div>
@@ -155,7 +198,7 @@ const PostMeeting = () => {
                         onClick={() => copyToClipboard(summary.summary)}
                         className={`text-xs flex items-center gap-1 ${textSecondary} hover:text-purple-400`}
                       >
-                        {copied ? <Check size={12} /> : <Copy size={12} />} Copy
+                        {copied ? <Check size={12} className="text-green-400" /> : <Copy size={12} />} Copy
                       </button>
                     </div>
                     <p className={`text-sm ${textSecondary} leading-relaxed`}>{summary.summary}</p>
@@ -167,7 +210,9 @@ const PostMeeting = () => {
                       <ul className="space-y-2">
                         {summary.keyPoints.map((point: string, i: number) => (
                           <li key={i} className="flex items-start gap-2">
-                            <span className="w-5 h-5 bg-purple-500 bg-opacity-20 text-purple-400 rounded-full flex items-center justify-center text-xs flex-shrink-0 mt-0.5">{i + 1}</span>
+                            <span className="w-5 h-5 bg-purple-500 bg-opacity-20 text-purple-400 rounded-full flex items-center justify-center text-xs flex-shrink-0 mt-0.5">
+                              {i + 1}
+                            </span>
                             <span className={`text-sm ${textSecondary}`}>{point}</span>
                           </li>
                         ))}
@@ -205,7 +250,7 @@ const PostMeeting = () => {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1">
                             <p className={`font-medium text-sm ${textPrimary}`}>{item.task}</p>
-                            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            <div className="flex items-center gap-3 mt-2 flex-wrap">
                               {item.owner && (
                                 <span className={`text-xs ${textSecondary} flex items-center gap-1`}>
                                   👤 {item.owner}
@@ -218,7 +263,7 @@ const PostMeeting = () => {
                               )}
                             </div>
                           </div>
-                          <span className={`text-xs px-2 py-1 rounded-full font-medium flex-shrink-0 ${getPriorityColor(item.priority)}`}>
+                          <span className={`text-xs px-2 py-1 rounded-full font-medium flex-shrink-0 capitalize ${getPriorityColor(item.priority)}`}>
                             {item.priority}
                           </span>
                         </div>
@@ -232,7 +277,7 @@ const PostMeeting = () => {
               {activeTab === 'ai' && (
                 <div className="space-y-4">
                   <p className={`text-sm ${textSecondary}`}>
-                    Ask questions about your meeting. The AI will answer based on the transcript.
+                    Ask questions about your meeting. AI will answer based on the transcript.
                   </p>
 
                   {/* Quick questions */}
@@ -240,7 +285,7 @@ const PostMeeting = () => {
                     {[
                       'What were the main decisions?',
                       'Who has the most action items?',
-                      'What are the risks discussed?',
+                      'What are the deadlines?',
                       'Summarize in one sentence'
                     ].map(q => (
                       <button
