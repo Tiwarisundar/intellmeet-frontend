@@ -4,10 +4,11 @@ import useAuthStore from '../../store/authStore';
 import useThemeStore from '../../store/themeStore';
 import { getAllMeetings, createMeeting, joinMeeting, deleteMeeting } from '../../services/meetingService';
 import { getNotifications, markAsRead, markAllAsRead } from '../../services/notificationService';
+import { getAllTasks, createTask, updateTaskStatus, deleteTask } from '../../services/taskService';
 import {
   Video, Link2, LogOut, Calendar, Clock, Users,
   Trash2, ArrowRight, Loader2, Bell, Search,
-  Sun, Moon, Check, ChevronRight, Brain
+  Sun, Moon, Check, ChevronRight, Brain, Plus, X, Link as LinkIcon
 } from 'lucide-react';
 
 const Dashboard = () => {
@@ -28,10 +29,26 @@ const Dashboard = () => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const notifRef = useRef<HTMLDivElement>(null);
+  const taskBoardRef = useRef<HTMLDivElement>(null);
+
+  // Task board state
+  const [tasks, setTasks] = useState<any[]>([]);
+  const [fetchingTasks, setFetchingTasks] = useState(true);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [taskSubmitting, setTaskSubmitting] = useState(false);
+  const [taskError, setTaskError] = useState('');
+  const [newTask, setNewTask] = useState({
+    title: '',
+    description: '',
+    priority: 'medium',
+    meetingId: '',
+    assigneeName: ''
+  });
 
   useEffect(() => {
     fetchMeetings();
     fetchNotifications();
+    fetchTasks();
   }, []);
 
   useEffect(() => {
@@ -63,6 +80,18 @@ const Dashboard = () => {
       setUnreadCount(response.unreadCount || 0);
     } catch (err) {
       console.error('Failed to fetch notifications');
+    }
+  };
+
+  const fetchTasks = async () => {
+    try {
+      setFetchingTasks(true);
+      const response = await getAllTasks();
+      setTasks(response.tasks || []);
+    } catch (err) {
+      console.error('Failed to fetch tasks');
+    } finally {
+      setFetchingTasks(false);
     }
   };
 
@@ -120,10 +149,93 @@ const Dashboard = () => {
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
+  const scrollToTaskBoard = () => {
+    taskBoardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const filteredMeetings = meetings.filter(m =>
     m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     m.meetingCode.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // ---- Task board handlers ----
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTask.title.trim()) return;
+    setTaskSubmitting(true);
+    setTaskError('');
+    try {
+      const payload: any = {
+        title: newTask.title.trim(),
+        description: newTask.description.trim() || undefined,
+        priority: newTask.priority,
+        assigneeName: newTask.assigneeName.trim() || undefined,
+      };
+      if (newTask.meetingId) payload.meetingId = newTask.meetingId;
+
+      const response = await createTask(payload);
+      setTasks(prev => [response.task, ...prev]);
+      setNewTask({ title: '', description: '', priority: 'medium', meetingId: '', assigneeName: '' });
+      setShowAddTask(false);
+    } catch (err: any) {
+      setTaskError(err.response?.data?.message || 'Failed to create task');
+    } finally {
+      setTaskSubmitting(false);
+    }
+  };
+
+  const handleStatusChange = async (taskId: string, newStatus: string) => {
+    // optimistic update
+    const prevTasks = tasks;
+    setTasks(prev => prev.map(t => t._id === taskId ? { ...t, status: newStatus } : t));
+    try {
+      const response = await updateTaskStatus(taskId, newStatus);
+      setTasks(prev => prev.map(t => t._id === taskId ? response.task : t));
+    } catch (err) {
+      console.error('Failed to update task status');
+      setTasks(prevTasks); // revert on failure
+    }
+  };
+
+  const handleDeleteTask = async (taskId: string) => {
+    const prevTasks = tasks;
+    setTasks(prev => prev.filter(t => t._id !== taskId));
+    try {
+      await deleteTask(taskId);
+    } catch (err) {
+      console.error('Failed to delete task');
+      setTasks(prevTasks); // revert on failure
+    }
+  };
+
+  // Task board derived lists
+  // Matches your actual Task schema enum: ['todo', 'in-progress', 'review', 'done']
+  const getAssigneeName = (task: any) => task.assigneeName || 'Unassigned';
+  const getMeetingLabel = (task: any) => {
+    if (!task.meetingId) return null;
+    // meetingId may be populated object or raw string id
+    if (typeof task.meetingId === 'object') return task.meetingId.title;
+    return null;
+  };
+
+  const todoTasks = tasks.filter(t => t.status === 'todo');
+  const inProgressTasks = tasks.filter(t => t.status === 'in-progress');
+  const reviewTasks = tasks.filter(t => t.status === 'review');
+  const completedTasks = tasks.filter(t => t.status === 'done');
+
+  const STATUS_OPTIONS = [
+    { value: 'todo', label: 'Todo' },
+    { value: 'in-progress', label: 'In Progress' },
+    { value: 'review', label: 'Review' },
+    { value: 'done', label: 'Completed' },
+  ];
+
+  const getPriorityDot = (priority: string) => {
+    if (priority === 'high') return 'bg-red-500';
+    if (priority === 'low') return 'bg-gray-400';
+    return 'bg-yellow-500';
+  };
 
   const getStatusBadge = (status: string) => {
     if (status === 'active') return isDark ? 'bg-green-900 text-green-300' : 'bg-green-100 text-green-700';
@@ -150,6 +262,56 @@ const Dashboard = () => {
   const inputBg = isDark
     ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500'
     : 'bg-white border-gray-200 text-gray-900';
+  const selectBg = isDark
+    ? 'bg-gray-800 border-gray-700 text-white'
+    : 'bg-white border-gray-200 text-gray-900';
+
+  // Reusable task card
+  const TaskCard = ({ task }: { task: any }) => {
+    const meetingLabel = getMeetingLabel(task);
+    return (
+      <div className={`p-3 rounded-xl border ${isDark ? 'border-gray-800 bg-gray-800' : 'border-gray-100 bg-gray-50'}`}>
+        <div className="flex items-start justify-between gap-2">
+          <p className={`text-sm font-semibold ${textPrimary}`}>{task.title}</p>
+          <button
+            onClick={() => handleDeleteTask(task._id)}
+            className={`flex-shrink-0 w-6 h-6 rounded-lg flex items-center justify-center transition ${
+              isDark ? 'text-gray-500 hover:bg-red-950 hover:text-red-400' : 'text-gray-400 hover:bg-red-50 hover:text-red-500'
+            }`}
+            title="Delete task"
+          >
+            <Trash2 size={12} />
+          </button>
+        </div>
+
+        {task.description && (
+          <p className={`text-xs mt-1 ${textSecondary} line-clamp-2`}>{task.description}</p>
+        )}
+
+        <div className="flex items-center gap-2 mt-2 flex-wrap">
+          <span className={`w-2 h-2 rounded-full ${getPriorityDot(task.priority)}`}></span>
+          <span className={`text-xs ${textSecondary}`}>{getAssigneeName(task)}</span>
+        </div>
+
+        {meetingLabel && (
+          <div className={`flex items-center gap-1 mt-2 text-xs ${isDark ? 'text-blue-400' : 'text-blue-600'}`}>
+            <LinkIcon size={11} />
+            <span className="truncate">{meetingLabel}</span>
+          </div>
+        )}
+
+        <select
+          value={task.status}
+          onChange={(e) => handleStatusChange(task._id, e.target.value)}
+          className={`mt-3 w-full text-xs border rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500 ${selectBg}`}
+        >
+          {STATUS_OPTIONS.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+    );
+  };
 
   return (
     <div className={`min-h-screen ${bg} transition-colors duration-200`}>
@@ -262,7 +424,7 @@ const Dashboard = () => {
               )}
             </div>
 
-            {/* User Profile — SIRF EK */}
+            {/* User Profile */}
             <button
               onClick={() => navigate('/profile')}
               className={`flex items-center gap-2 rounded-xl px-3 py-2 transition ${
@@ -327,24 +489,26 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
-              {/* Quick Links */}
-<div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-  {[
-    { label: 'Workspace', icon: '📋', path: '/workspace', color: 'from-blue-500 to-blue-600' },
-    { label: 'Tasks', icon: '✅', path: '/tasks', color: 'from-green-500 to-green-600' },
-    { label: 'AI Intelligence', icon: '🤖', path: '/post-meeting', color: 'from-purple-500 to-purple-600' },
-    { label: 'Profile', icon: '👤', path: '/profile', color: 'from-orange-500 to-orange-600' }
-  ].map(link => (
-    <button
-      key={link.path}
-      onClick={() => navigate(link.path)}
-      className={`bg-gradient-to-r ${link.color} text-white p-4 rounded-2xl text-left hover:opacity-90 transition shadow-sm`}
-    >
-      <div className="text-2xl mb-1">{link.icon}</div>
-      <div className="font-semibold text-sm">{link.label}</div>
-    </button>
-  ))}
-</div>
+
+        {/* Quick Links */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          {[
+            { label: 'Workspace', icon: '📋', path: '/workspace', color: 'from-blue-500 to-blue-600' },
+            { label: 'Tasks', icon: '✅', path: null, action: () => { setShowAddTask(true); setTaskError(''); }, color: 'from-green-500 to-green-600' },
+            { label: 'AI Intelligence', icon: '🤖', path: '/post-meeting', color: 'from-purple-500 to-purple-600' },
+            { label: 'Profile', icon: '👤', path: '/profile', color: 'from-orange-500 to-orange-600' }
+          ].map(link => (
+            <button
+              key={link.label}
+              onClick={() => link.action ? link.action() : navigate(link.path!)}
+              className={`bg-gradient-to-r ${link.color} text-white p-4 rounded-2xl text-left hover:opacity-90 transition shadow-sm`}
+            >
+              <div className="text-2xl mb-1">{link.icon}</div>
+              <div className="font-semibold text-sm">{link.label}</div>
+            </button>
+          ))}
+        </div>
+
         {/* Action Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
           <button
@@ -451,6 +615,97 @@ const Dashboard = () => {
           </div>
         )}
 
+        {/* Task Board: Todo / In Progress / Review / Completed */}
+        <div ref={taskBoardRef} className="flex items-center justify-between mb-4 scroll-mt-24">
+          <h3 className={`font-bold ${textPrimary} flex items-center gap-2`}>
+            <Check size={20} className="text-blue-600" /> Task Board
+          </h3>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+
+          {/* Todo Column */}
+          <div className={`${cardBg} border rounded-2xl p-4 shadow-sm`}>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-400"></span>
+              <h3 className={`font-bold text-sm ${textPrimary}`}>Todo</h3>
+              <span className={`text-xs ${textSecondary}`}>({todoTasks.length})</span>
+            </div>
+            <div className="space-y-3">
+              {fetchingTasks ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 size={18} className="animate-spin text-blue-600" />
+                </div>
+              ) : todoTasks.length === 0 ? (
+                <p className={`text-xs ${textSecondary}`}>No tasks</p>
+              ) : (
+                todoTasks.map((task: any) => <TaskCard key={task._id} task={task} />)
+              )}
+            </div>
+          </div>
+
+          {/* In Progress Column */}
+          <div className={`${cardBg} border rounded-2xl p-4 shadow-sm`}>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+              <h3 className={`font-bold text-sm ${textPrimary}`}>In Progress</h3>
+              <span className={`text-xs ${textSecondary}`}>({inProgressTasks.length})</span>
+            </div>
+            <div className="space-y-3">
+              {fetchingTasks ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 size={18} className="animate-spin text-blue-600" />
+                </div>
+              ) : inProgressTasks.length === 0 ? (
+                <p className={`text-xs ${textSecondary}`}>No tasks</p>
+              ) : (
+                inProgressTasks.map((task: any) => <TaskCard key={task._id} task={task} />)
+              )}
+            </div>
+          </div>
+
+          {/* Review Column */}
+          <div className={`${cardBg} border rounded-2xl p-4 shadow-sm`}>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-2.5 h-2.5 rounded-full bg-purple-500"></span>
+              <h3 className={`font-bold text-sm ${textPrimary}`}>Review</h3>
+              <span className={`text-xs ${textSecondary}`}>({reviewTasks.length})</span>
+            </div>
+            <div className="space-y-3">
+              {fetchingTasks ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 size={18} className="animate-spin text-blue-600" />
+                </div>
+              ) : reviewTasks.length === 0 ? (
+                <p className={`text-xs ${textSecondary}`}>No tasks</p>
+              ) : (
+                reviewTasks.map((task: any) => <TaskCard key={task._id} task={task} />)
+              )}
+            </div>
+          </div>
+
+          {/* Completed Column */}
+          <div className={`${cardBg} border rounded-2xl p-4 shadow-sm`}>
+            <div className="flex items-center gap-2 mb-4">
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+              <h3 className={`font-bold text-sm ${textPrimary}`}>Completed</h3>
+              <span className={`text-xs ${textSecondary}`}>({completedTasks.length})</span>
+            </div>
+            <div className="space-y-3">
+              {fetchingTasks ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 size={18} className="animate-spin text-blue-600" />
+                </div>
+              ) : completedTasks.length === 0 ? (
+                <p className={`text-xs ${textSecondary}`}>No tasks</p>
+              ) : (
+                completedTasks.map((task: any) => <TaskCard key={task._id} task={task} />)
+              )}
+            </div>
+          </div>
+
+        </div>
+
         {/* Meetings List */}
         <div className={`${cardBg} border rounded-2xl shadow-sm`}>
           <div className={`p-6 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'} flex items-center justify-between flex-wrap gap-3`}>
@@ -547,6 +802,112 @@ const Dashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* Add Task Modal */}
+      {showAddTask && (
+        <div
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowAddTask(false)}
+        >
+          <div
+            className={`${cardBg} border rounded-2xl p-6 w-full max-w-md shadow-xl`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-5">
+              <h3 className={`font-bold text-lg ${textPrimary}`}>Add New Task</h3>
+              <button
+                onClick={() => setShowAddTask(false)}
+                className={`w-8 h-8 rounded-lg flex items-center justify-center transition ${
+                  isDark ? 'hover:bg-gray-800 text-gray-400' : 'hover:bg-gray-100 text-gray-500'
+                }`}
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {taskError && (
+              <div className="bg-red-50 border border-red-200 text-red-600 p-3 rounded-xl mb-4 text-sm">
+                ⚠️ {taskError}
+              </div>
+            )}
+
+            <form onSubmit={handleCreateTask} className="space-y-4">
+              <div>
+                <label className={`text-xs font-medium ${textSecondary} mb-1 block`}>Title *</label>
+                <input
+                  type="text"
+                  required
+                  value={newTask.title}
+                  onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                  placeholder="e.g. Follow up with client"
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}`}
+                />
+              </div>
+
+              <div>
+                <label className={`text-xs font-medium ${textSecondary} mb-1 block`}>Description</label>
+                <textarea
+                  value={newTask.description}
+                  onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                  placeholder="Optional details..."
+                  rows={2}
+                  className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none ${inputBg}`}
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className={`text-xs font-medium ${textSecondary} mb-1 block`}>Priority</label>
+                  <select
+                    value={newTask.priority}
+                    onChange={(e) => setNewTask({ ...newTask, priority: e.target.value })}
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${selectBg}`}
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                </div>
+                <div>
+                  <label className={`text-xs font-medium ${textSecondary} mb-1 block`}>Assignee</label>
+                  <input
+                    type="text"
+                    value={newTask.assigneeName}
+                    onChange={(e) => setNewTask({ ...newTask, assigneeName: e.target.value })}
+                    placeholder="Name"
+                    className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${inputBg}`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className={`text-xs font-medium ${textSecondary} mb-1 block flex items-center gap-1`}>
+                  <LinkIcon size={12} /> Link to Meeting (optional)
+                </label>
+                <select
+                  value={newTask.meetingId}
+                  onChange={(e) => setNewTask({ ...newTask, meetingId: e.target.value })}
+                  className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${selectBg}`}
+                >
+                  <option value="">No meeting</option>
+                  {meetings.map((m: any) => (
+                    <option key={m._id} value={m._id}>{m.title}</option>
+                  ))}
+                </select>
+              </div>
+
+              <button
+                type="submit"
+                disabled={taskSubmitting || !newTask.title.trim()}
+                className="w-full bg-blue-600 text-white py-3 rounded-xl hover:bg-blue-700 disabled:opacity-50 transition flex items-center justify-center gap-2 font-medium"
+              >
+                {taskSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+                {taskSubmitting ? 'Adding...' : 'Add Task'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

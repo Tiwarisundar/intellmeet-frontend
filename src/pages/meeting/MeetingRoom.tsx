@@ -5,10 +5,13 @@ import {
   Mic, MicOff, Video, VideoOff, MessageSquare,
   LogOut, PhoneOff, Send, Users, Copy, Check, X,
   UserCheck, UserX, Hand, Monitor, MonitorOff,
-  Settings, Flag, ChevronUp, Captions
+  Settings, Flag, ChevronUp, Captions, Loader2,
+  CheckSquare, Plus
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import { getMeeting, endMeeting } from '../../services/meetingService';
+import { getAllTasks, createTask, updateTaskStatus } from '../../services/taskService';
+import api from '../../services/api';
 
 const MAX_FREE_JOINS = 3;
 const ICE_SERVERS = {
@@ -32,7 +35,6 @@ interface RemoteStream {
   userId: string;
   userName: string;
   stream: MediaStream;
-  isScreenShare?: boolean;
 }
 
 const MeetingRoom = () => {
@@ -40,18 +42,18 @@ const MeetingRoom = () => {
   const navigate = useNavigate();
   const { user } = useAuthStore();
 
-  // Meeting state
+  // Meeting
   const [meeting, setMeeting] = useState<any>(null);
   const [participants, setParticipants] = useState<any[]>([]);
   const [isHost, setIsHost] = useState(false);
 
-  // Media state
+  // Media
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
 
-  // Chat state
+  // Chat
   const [messages, setMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [showChat, setShowChat] = useState(false);
@@ -60,10 +62,9 @@ const MeetingRoom = () => {
   const [typingUser, setTypingUser] = useState('');
   const [unreadMessages, setUnreadMessages] = useState(0);
 
-  // UI state
+  // UI
   const [copied, setCopied] = useState(false);
   const [isHandRaised, setIsHandRaised] = useState(false);
-  const [raisedHands, setRaisedHands] = useState<string[]>([]);
   const [captions, setCaptions] = useState(false);
   const [captionText, setCaptionText] = useState('');
   const [showMoreMenu, setShowMoreMenu] = useState(false);
@@ -73,7 +74,25 @@ const MeetingRoom = () => {
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
 
-  // Join approval state
+  // AI Panel
+  const [showAI, setShowAI] = useState(false);
+  const [aiTab, setAiTab] = useState<'summary' | 'chat'>('summary');
+  const [aiTranscript, setAiTranscript] = useState('');
+  const [aiSummary, setAiSummary] = useState<any>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiQuestion, setAiQuestion] = useState('');
+  const [aiAnswer, setAiAnswer] = useState('');
+  const [aiChatLoading, setAiChatLoading] = useState(false);
+
+  // Tasks Panel
+  const [showTasks, setShowTasks] = useState(false);
+  const [meetingTasks, setMeetingTasks] = useState<any[]>([]);
+  const [fetchingMeetingTasks, setFetchingMeetingTasks] = useState(false);
+  const [showAddMeetingTask, setShowAddMeetingTask] = useState(false);
+  const [addingMeetingTask, setAddingMeetingTask] = useState(false);
+  const [newMeetingTask, setNewMeetingTask] = useState({ title: '', priority: 'medium', assigneeName: '' });
+
+  // Join approval
   const [waitingForApproval, setWaitingForApproval] = useState(false);
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
   const [joinRejected, setJoinRejected] = useState(false);
@@ -87,7 +106,7 @@ const MeetingRoom = () => {
   const chatEndRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
 
-  // Join count helpers
+  // Join count
   const getJoinCount = () => parseInt(localStorage.getItem(`im_join_${id}`) || '0');
   const incrementJoinCount = () => {
     const count = getJoinCount() + 1;
@@ -114,10 +133,7 @@ const MeetingRoom = () => {
         setupSocket(true);
       }
     });
-
-    return () => {
-      cleanup();
-    };
+    return () => { cleanup(); };
   }, [id]);
 
   useEffect(() => {
@@ -141,18 +157,13 @@ const MeetingRoom = () => {
 
   // ==================== CLEANUP ====================
   const cleanup = () => {
-    // Stop all local tracks
     localStreamRef.current?.getTracks().forEach(t => { t.stop(); t.enabled = false; });
     localStreamRef.current = null;
     screenStreamRef.current?.getTracks().forEach(t => t.stop());
     screenStreamRef.current = null;
     if (localVideoRef.current) localVideoRef.current.srcObject = null;
-
-    // Close all peer connections
     peerConnectionsRef.current.forEach(pc => pc.close());
     peerConnectionsRef.current.clear();
-
-    // Disconnect socket
     socketRef.current?.disconnect();
   };
 
@@ -160,37 +171,42 @@ const MeetingRoom = () => {
   const startLocalStream = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720, facingMode: 'user' },
+        video: { width: 1280, height: 720 },
         audio: { echoCancellation: true, noiseSuppression: true }
       });
       localStreamRef.current = stream;
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream;
-      }
+      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
       return stream;
     } catch (err) {
-      console.error('Camera/mic access denied:', err);
-      // Try audio only
       try {
         const audioOnly = await navigator.mediaDevices.getUserMedia({ audio: true });
         localStreamRef.current = audioOnly;
         setIsVideoOff(true);
         return audioOnly;
-      } catch {
-        return null;
-      }
+      } catch { return null; }
     }
   };
 
-  // ==================== FETCH MEETING ====================
+  // ==================== FETCH ====================
   const fetchMeeting = async () => {
     try {
       const response = await getMeeting(id!);
       setMeeting(response.meeting);
       const hostId = response.meeting?.host?._id || response.meeting?.host;
       setIsHost(hostId === user?.id);
+    } catch (err) { console.error('Meeting fetch failed'); }
+  };
+
+  const fetchMeetingTasks = async () => {
+    if (!id) return;
+    try {
+      setFetchingMeetingTasks(true);
+      const response = await getAllTasks({ meetingId: id });
+      setMeetingTasks(response.tasks || []);
     } catch (err) {
-      console.error('Meeting fetch failed');
+      console.error('Failed to fetch meeting tasks');
+    } finally {
+      setFetchingMeetingTasks(false);
     }
   };
 
@@ -199,18 +215,10 @@ const MeetingRoom = () => {
     if (peerConnectionsRef.current.has(remoteSocketId)) {
       return peerConnectionsRef.current.get(remoteSocketId)!;
     }
-
     const pc = new RTCPeerConnection(ICE_SERVERS);
-
-    // Add local tracks
     const stream = localStreamRef.current;
-    if (stream) {
-      stream.getTracks().forEach(track => {
-        pc.addTrack(track, stream);
-      });
-    }
+    if (stream) stream.getTracks().forEach(track => pc.addTrack(track, stream));
 
-    // ICE candidates
     pc.onicecandidate = (event) => {
       if (event.candidate) {
         socketRef.current?.emit('ice-candidate', {
@@ -222,23 +230,13 @@ const MeetingRoom = () => {
       }
     };
 
-    // Remote stream
     pc.ontrack = (event) => {
       const remoteStream = event.streams[0];
       if (remoteStream) {
         setRemoteStreams(prev => {
           const exists = prev.find(s => s.userId === remoteSocketId);
-          if (exists) {
-            return prev.map(s => s.userId === remoteSocketId
-              ? { ...s, stream: remoteStream }
-              : s
-            );
-          }
-          return [...prev, {
-            userId: remoteSocketId,
-            userName: remoteUserName,
-            stream: remoteStream
-          }];
+          if (exists) return prev.map(s => s.userId === remoteSocketId ? { ...s, stream: remoteStream } : s);
+          return [...prev, { userId: remoteSocketId, userName: remoteUserName, stream: remoteStream }];
         });
       }
     };
@@ -257,45 +255,33 @@ const MeetingRoom = () => {
   const makeOffer = async (remoteSocketId: string, remoteUserId: string, remoteUserName: string) => {
     const pc = createPeerConnection(remoteSocketId, remoteUserId, remoteUserName);
     try {
-      const offer = await pc.createOffer({
-        offerToReceiveAudio: true,
-        offerToReceiveVideo: true
-      });
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
       await pc.setLocalDescription(offer);
       socketRef.current?.emit('webrtc-offer', {
-        meetingId: id,
-        offer,
+        meetingId: id, offer,
         toSocketId: remoteSocketId,
         fromSocketId: socketRef.current?.id,
         fromUserId: user?.id,
         fromUserName: user?.name
       });
-    } catch (err) {
-      console.error('Offer error:', err);
-    }
+    } catch (err) { console.error('Offer error:', err); }
   };
 
-  // ==================== SOCKET SETUP ====================
+  // ==================== SOCKET ====================
   const setupSocket = (autoJoin: boolean) => {
     const token = localStorage.getItem('accessToken');
     socketRef.current = io(import.meta.env.VITE_SOCKET_URL, {
       auth: { token },
       transports: ['websocket'],
-      reconnection: true,
-      reconnectionAttempts: 5
+      reconnection: true
     });
 
     socketRef.current.on('connect', () => {
-      console.log('✅ Socket connected:', socketRef.current?.id);
-      if (autoJoin) {
-        joinMeetingRoom();
-      }
+      if (autoJoin) joinMeetingRoom();
     });
 
-    // Meeting events
     socketRef.current.on('user-joined', async ({ userId, userName, socketId }) => {
       addSystemMsg(`${userName} joined`);
-      // Initiate WebRTC offer to new participant
       if (socketId !== socketRef.current?.id) {
         setTimeout(() => makeOffer(socketId, userId, userName), 500);
       }
@@ -310,7 +296,6 @@ const MeetingRoom = () => {
 
     socketRef.current.on('participants-list', setParticipants);
 
-    // WebRTC events
     socketRef.current.on('webrtc-offer', async ({ offer, fromSocketId, fromUserId, fromUserName }) => {
       const pc = createPeerConnection(fromSocketId, fromUserId, fromUserName);
       try {
@@ -318,65 +303,43 @@ const MeetingRoom = () => {
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
         socketRef.current?.emit('webrtc-answer', {
-          meetingId: id,
-          answer,
+          meetingId: id, answer,
           toSocketId: fromSocketId,
           fromSocketId: socketRef.current?.id,
           fromUserId: user?.id,
           fromUserName: user?.name
         });
-      } catch (err) {
-        console.error('Answer error:', err);
-      }
+      } catch (err) { console.error('Answer error:', err); }
     });
 
     socketRef.current.on('webrtc-answer', async ({ answer, fromSocketId }) => {
       const pc = peerConnectionsRef.current.get(fromSocketId);
       if (pc && pc.signalingState !== 'stable') {
-        try {
-          await pc.setRemoteDescription(new RTCSessionDescription(answer));
-        } catch (err) {
-          console.error('Set remote desc error:', err);
-        }
+        try { await pc.setRemoteDescription(new RTCSessionDescription(answer)); }
+        catch (err) { console.error('Set remote desc error:', err); }
       }
     });
 
     socketRef.current.on('ice-candidate', async ({ candidate, fromSocketId }) => {
       const pc = peerConnectionsRef.current.get(fromSocketId);
       if (pc && candidate) {
-        try {
-          await pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          console.error('ICE candidate error:', err);
-        }
+        try { await pc.addIceCandidate(new RTCIceCandidate(candidate)); }
+        catch (err) { console.error('ICE error:', err); }
       }
     });
 
-    // Chat
     socketRef.current.on('receive-message', (msg) => setMessages(prev => [...prev, msg]));
     socketRef.current.on('messages-history', setMessages);
     socketRef.current.on('user-typing', ({ userName }) => { setTypingUser(userName); setIsTyping(true); });
     socketRef.current.on('user-stop-typing', () => { setIsTyping(false); setTypingUser(''); });
-
-    // Controls
-    socketRef.current.on('hand-raised', ({ userName }) => {
-      showToast(`✋ ${userName} raised their hand`);
-    });
-    socketRef.current.on('user-screen-sharing', ({ userName }) => {
-      showToast(`🖥️ ${userName} started screen sharing`);
-    });
-    socketRef.current.on('user-screen-share-stopped', () => {
-      showToast('🖥️ Screen sharing stopped');
-    });
+    socketRef.current.on('hand-raised', ({ userName }) => showToast(`✋ ${userName} raised their hand`));
+    socketRef.current.on('user-screen-sharing', ({ userName }) => showToast(`🖥️ ${userName} started screen sharing`));
+    socketRef.current.on('user-screen-share-stopped', () => showToast('🖥️ Screen sharing stopped'));
     socketRef.current.on('receive-caption', ({ userName, text }) => {
       setCaptionText(`${userName}: ${text}`);
       setTimeout(() => setCaptionText(''), 4000);
     });
-
-    // Join approval
-    socketRef.current.on('join-request', (req) => {
-      setJoinRequests(prev => [...prev, req]);
-    });
+    socketRef.current.on('join-request', (req) => setJoinRequests(prev => [...prev, req]));
     socketRef.current.on('join-approved', () => {
       setWaitingForApproval(false);
       incrementJoinCount();
@@ -394,111 +357,73 @@ const MeetingRoom = () => {
 
   const joinMeetingRoom = () => {
     socketRef.current?.emit('join-meeting', {
-      meetingId: id,
-      userId: user?.id,
-      userName: user?.name,
-      isHost
+      meetingId: id, userId: user?.id,
+      userName: user?.name, isHost
     });
     socketRef.current?.emit('get-messages', { meetingId: id });
   };
 
   const requestApproval = () => {
     socketRef.current?.emit('request-join', {
-      meetingId: id,
-      userId: user?.id,
-      userName: user?.name
+      meetingId: id, userId: user?.id, userName: user?.name
     });
   };
 
   // ==================== CONTROLS ====================
   const toggleMute = () => {
-    const audioTracks = localStreamRef.current?.getAudioTracks();
-    audioTracks?.forEach(t => t.enabled = isMuted);
+    localStreamRef.current?.getAudioTracks().forEach(t => t.enabled = isMuted);
     setIsMuted(!isMuted);
     socketRef.current?.emit('toggle-mute', { meetingId: id, userId: user?.id, isMuted: !isMuted });
   };
 
   const toggleVideo = () => {
-    const videoTracks = localStreamRef.current?.getVideoTracks();
-    videoTracks?.forEach(t => t.enabled = isVideoOff);
+    localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = isVideoOff);
     setIsVideoOff(!isVideoOff);
     socketRef.current?.emit('toggle-video', { meetingId: id, userId: user?.id, isVideoOff: !isVideoOff });
   };
 
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
-      // Stop screen share
       screenStreamRef.current?.getTracks().forEach(t => t.stop());
       screenStreamRef.current = null;
       setIsScreenSharing(false);
-
-      // Camera wapas on karo
       setIsVideoOff(false);
       const camStream = await startLocalStream();
       if (camStream) {
-        // Replace tracks in all peer connections
         peerConnectionsRef.current.forEach(async (pc) => {
           const senders = pc.getSenders();
           const videoSender = senders.find(s => s.track?.kind === 'video');
           const camVideoTrack = camStream.getVideoTracks()[0];
-          if (videoSender && camVideoTrack) {
-            await videoSender.replaceTrack(camVideoTrack);
-          }
+          if (videoSender && camVideoTrack) await videoSender.replaceTrack(camVideoTrack);
           const audioSender = senders.find(s => s.track?.kind === 'audio');
           const camAudioTrack = camStream.getAudioTracks()[0];
-          if (audioSender && camAudioTrack) {
-            await audioSender.replaceTrack(camAudioTrack);
-          }
+          if (audioSender && camAudioTrack) await audioSender.replaceTrack(camAudioTrack);
         });
       }
-
       socketRef.current?.emit('screen-share-stopped', { meetingId: id, userId: user?.id });
       showToast('🖥️ Screen sharing stopped — camera restored');
-
     } else {
-      // Start screen share
       try {
         const screenStream = await navigator.mediaDevices.getDisplayMedia({
-          video: { width: 1920, height: 1080, frameRate: 30 },
+          video: { width: 1920, height: 1080, frameRate: 30 } as any,
           audio: true
         });
-
         screenStreamRef.current = screenStream;
         setIsScreenSharing(true);
-
-        // Camera off karo (screen share ke dauran)
         setIsVideoOff(true);
         localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = false);
-
-        // Replace video track in all peer connections with screen track
         const screenVideoTrack = screenStream.getVideoTracks()[0];
         peerConnectionsRef.current.forEach(async (pc) => {
           const senders = pc.getSenders();
           const videoSender = senders.find(s => s.track?.kind === 'video');
-          if (videoSender && screenVideoTrack) {
-            await videoSender.replaceTrack(screenVideoTrack);
-          }
+          if (videoSender && screenVideoTrack) await videoSender.replaceTrack(screenVideoTrack);
         });
-
-        // Show screen in local video
-        if (localVideoRef.current) {
-          localVideoRef.current.srcObject = screenStream;
-        }
-
-        // Browser stop sharing button handle
-        screenVideoTrack.onended = () => {
-          toggleScreenShare();
-        };
-
-        socketRef.current?.emit('screen-share-started', {
-          meetingId: id, userId: user?.id, userName: user?.name
-        });
-        showToast('🖥️ Screen sharing started — camera turned off');
-
+        if (localVideoRef.current) localVideoRef.current.srcObject = screenStream;
+        screenVideoTrack.onended = () => toggleScreenShare();
+        socketRef.current?.emit('screen-share-started', { meetingId: id, userId: user?.id, userName: user?.name });
+        showToast('🖥️ Screen sharing started');
       } catch (err: any) {
-        if (err.name !== 'NotAllowedError') {
-          showToast('❌ Screen share failed');
-        }
+        if (err.name !== 'NotAllowedError') showToast('❌ Screen share failed');
       }
     }
   };
@@ -564,9 +489,7 @@ const MeetingRoom = () => {
 
   const submitReport = () => {
     if (!reportReason.trim()) return;
-    socketRef.current?.emit('report-user', {
-      meetingId: id, reason: reportReason, reportedBy: user?.name
-    });
+    socketRef.current?.emit('report-user', { meetingId: id, reason: reportReason, reportedBy: user?.name });
   };
 
   const addSystemMsg = (text: string) => {
@@ -585,13 +508,114 @@ const MeetingRoom = () => {
   const formatTime = (ts: string) =>
     new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 
+  // ==================== AI FUNCTIONS ====================
+  const generateAISummary = async () => {
+    setAiLoading(true);
+    setAiSummary(null);
+    try {
+      const chatContext = messages
+        .filter(m => m.type !== 'system')
+        .map(m => `${m.userName}: ${m.message}`)
+        .join('\n');
+
+      const transcriptToUse = aiTranscript.trim() || chatContext;
+
+      if (!transcriptToUse) {
+        setAiSummary({ error: 'No content to analyze. Add transcript or send chat messages first.' });
+        return;
+      }
+
+      const response = await api.post('/ai/summary', {
+        transcript: transcriptToUse,
+        meetingId: id
+      });
+
+      if (response.data.success) {
+        setAiSummary(response.data);
+      }
+    } catch (err: any) {
+      setAiSummary({ error: err.response?.data?.message || 'AI error occurred. Check API key.' });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const askAIQuestion = async () => {
+    if (!aiQuestion.trim()) return;
+    setAiChatLoading(true);
+    try {
+      const chatContext = messages
+        .filter(m => m.type !== 'system')
+        .map(m => `${m.userName}: ${m.message}`)
+        .join('\n');
+
+      const response = await api.post('/ai/chat', {
+        question: aiQuestion,
+        context: aiTranscript || chatContext || `Meeting: ${meeting?.title}`
+      });
+
+      if (response.data.success) {
+        setAiAnswer(response.data.answer);
+      }
+    } catch (err) {
+      setAiAnswer('AI is not available right now.');
+    } finally {
+      setAiChatLoading(false);
+    }
+  };
+
+  // ==================== TASK FUNCTIONS ====================
+  const handleAddMeetingTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newMeetingTask.title.trim() || !id) return;
+    setAddingMeetingTask(true);
+    try {
+      const response = await createTask({
+        title: newMeetingTask.title.trim(),
+        priority: newMeetingTask.priority,
+        assigneeName: newMeetingTask.assigneeName.trim() || undefined,
+        meetingId: id
+      });
+      setMeetingTasks(prev => [response.task, ...prev]);
+      setNewMeetingTask({ title: '', priority: 'medium', assigneeName: '' });
+      setShowAddMeetingTask(false);
+    } catch (err) {
+      console.error('Failed to add task');
+    } finally {
+      setAddingMeetingTask(false);
+    }
+  };
+
+  const handleMeetingTaskStatusChange = async (taskId: string, newStatus: string) => {
+    const prev = meetingTasks;
+    setMeetingTasks(p => p.map(t => t._id === taskId ? { ...t, status: newStatus } : t));
+    try {
+      const response = await updateTaskStatus(taskId, newStatus);
+      setMeetingTasks(p => p.map(t => t._id === taskId ? response.task : t));
+    } catch (err) {
+      console.error('Failed to update task status');
+      setMeetingTasks(prev);
+    }
+  };
+
+  const getPriorityDot = (priority: string) => {
+    if (priority === 'high') return 'bg-red-500';
+    if (priority === 'low') return 'bg-gray-400';
+    return 'bg-yellow-500';
+  };
+
+  const STATUS_OPTIONS = [
+    { value: 'todo', label: 'Todo' },
+    { value: 'in-progress', label: 'In Progress' },
+    { value: 'review', label: 'Review' },
+    { value: 'done', label: 'Completed' },
+  ];
+
   // ==================== REMOTE VIDEO ====================
   const RemoteVideoTile = ({ remote }: { remote: RemoteStream }) => {
     const videoRef = useRef<HTMLVideoElement>(null);
     useEffect(() => {
-      if (videoRef.current) {
-        videoRef.current.srcObject = remote.stream;
-      }
+      if (videoRef.current) videoRef.current.srcObject = remote.stream;
     }, [remote.stream]);
     return (
       <div className="bg-gray-800 rounded-xl overflow-hidden relative border border-gray-700">
@@ -603,7 +627,7 @@ const MeetingRoom = () => {
     );
   };
 
-  // ==================== SCREENS ====================
+  // ==================== WAITING SCREENS ====================
   if (waitingForApproval) {
     return (
       <div className="h-screen bg-gray-950 flex items-center justify-center">
@@ -641,9 +665,9 @@ const MeetingRoom = () => {
     );
   }
 
-  // ==================== MAIN UI ====================
   const totalParticipants = 1 + remoteStreams.length;
 
+  // ==================== MAIN UI ====================
   return (
     <div className="h-screen bg-gray-950 flex flex-col overflow-hidden">
 
@@ -762,7 +786,7 @@ const MeetingRoom = () => {
         </div>
       )}
 
-      {/* Header */}
+      {/* ===== HEADER ===== */}
       <div className="bg-gray-900 border-b border-gray-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
@@ -771,11 +795,53 @@ const MeetingRoom = () => {
             {isHost && <span className="text-xs bg-yellow-600 bg-opacity-20 text-yellow-400 px-2 py-0.5 rounded-full">Host</span>}
             {isScreenSharing && <span className="text-xs bg-blue-600 bg-opacity-20 text-blue-400 px-2 py-0.5 rounded-full flex items-center gap-1"><Monitor size={10} /> Sharing</span>}
           </div>
+
+          {/* Meeting Code */}
           <button onClick={copyCode} className="hidden sm:flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs px-3 py-1.5 rounded-lg transition">
             {copied ? <Check size={11} className="text-green-400" /> : <Copy size={11} />}
             {meeting?.meetingCode}
           </button>
+
+          {/* Tasks Button */}
+          <button
+            onClick={() => {
+              const opening = !showTasks;
+              setShowTasks(opening);
+              setShowChat(false);
+              setShowParticipants(false);
+              setShowAI(false);
+              if (opening) fetchMeetingTasks();
+            }}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition font-medium ${
+              showTasks
+                ? 'bg-green-600 text-white'
+                : 'bg-gray-800 hover:bg-gray-700 text-green-400 border border-green-800'
+            }`}
+          >
+            <CheckSquare size={13} /> Tasks
+            {meetingTasks.length > 0 && (
+              <span className="bg-black bg-opacity-30 px-1.5 rounded-full text-xs">{meetingTasks.length}</span>
+            )}
+          </button>
+
+          {/* AI Button */}
+          <button
+            onClick={() => {
+              setShowAI(!showAI);
+              setShowChat(false);
+              setShowParticipants(false);
+              setShowTasks(false);
+            }}
+            className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition font-medium ${
+              showAI
+                ? 'bg-purple-600 text-white'
+                : 'bg-gray-800 hover:bg-gray-700 text-purple-400 border border-purple-800'
+            }`}
+          >
+            🤖 AI
+          </button>
         </div>
+
         <div className="flex items-center gap-3">
           <span className="flex items-center gap-1.5 text-green-400 text-xs bg-green-400 bg-opacity-10 px-3 py-1.5 rounded-full">
             <span className="w-1.5 h-1.5 bg-green-400 rounded-full animate-pulse"></span>
@@ -787,16 +853,15 @@ const MeetingRoom = () => {
         </div>
       </div>
 
-      {/* Main */}
+      {/* ===== MAIN ===== */}
       <div className="flex flex-1 overflow-hidden">
 
         {/* Video Grid */}
-        <div className="flex-1 p-3 overflow-hidden">
+        <div className="flex-1 p-3 overflow-hidden relative">
           <div className={`h-full grid gap-2 ${
             totalParticipants === 1 ? 'grid-cols-1' :
             totalParticipants === 2 ? 'grid-cols-2' :
-            totalParticipants <= 4 ? 'grid-cols-2' :
-            'grid-cols-3'
+            totalParticipants <= 4 ? 'grid-cols-2' : 'grid-cols-3'
           }`}>
 
             {/* Local Video */}
@@ -825,13 +890,13 @@ const MeetingRoom = () => {
 
           {/* Captions */}
           {captions && captionText && (
-            <div className="absolute bottom-24 left-1/2 -translate-x-1/2 bg-black bg-opacity-80 text-white text-sm text-center px-6 py-2 rounded-xl border border-gray-700 max-w-2xl">
+            <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black bg-opacity-80 text-white text-sm text-center px-6 py-2 rounded-xl border border-gray-700 max-w-2xl">
               {captionText}
             </div>
           )}
         </div>
 
-        {/* Chat */}
+        {/* ===== CHAT SIDEBAR ===== */}
         {showChat && (
           <div className="w-72 bg-gray-900 flex flex-col border-l border-gray-800">
             <div className="p-4 border-b border-gray-800 flex items-center justify-between">
@@ -874,7 +939,7 @@ const MeetingRoom = () => {
           </div>
         )}
 
-        {/* Participants */}
+        {/* ===== PARTICIPANTS SIDEBAR ===== */}
         {showParticipants && (
           <div className="w-60 bg-gray-900 flex flex-col border-l border-gray-800">
             <div className="p-4 border-b border-gray-800 flex items-center justify-between">
@@ -882,7 +947,6 @@ const MeetingRoom = () => {
               <button onClick={() => setShowParticipants(false)} className="text-gray-400 hover:text-white"><X size={16} /></button>
             </div>
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {/* Local user */}
               <div className="flex items-center gap-2 p-2.5 bg-gray-800 rounded-xl">
                 <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">
                   {user?.name?.charAt(0).toUpperCase()}
@@ -893,7 +957,6 @@ const MeetingRoom = () => {
                 </div>
                 {isMuted && <MicOff size={12} className="text-red-400" />}
               </div>
-              {/* Remote participants */}
               {remoteStreams.map((remote) => (
                 <div key={remote.userId} className="flex items-center gap-2 p-2.5 bg-gray-800 rounded-xl">
                   <div className="w-8 h-8 bg-purple-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">
@@ -905,9 +968,278 @@ const MeetingRoom = () => {
             </div>
           </div>
         )}
+
+        {/* ===== TASKS SIDEBAR ===== */}
+        {showTasks && (
+          <div className="w-80 bg-gray-900 flex flex-col border-l border-gray-800">
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+              <h2 className="text-white font-semibold text-sm flex items-center gap-2">
+                <CheckSquare size={16} className="text-green-400" /> Meeting Tasks
+              </h2>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setShowAddMeetingTask(!showAddMeetingTask)}
+                  className="w-7 h-7 bg-green-600 hover:bg-green-500 rounded-lg flex items-center justify-center transition"
+                  title="Add task"
+                >
+                  <Plus size={14} className="text-white" />
+                </button>
+                <button onClick={() => setShowTasks(false)} className="text-gray-400 hover:text-white"><X size={16} /></button>
+              </div>
+            </div>
+
+            {/* Quick Add Task Form */}
+            {showAddMeetingTask && (
+              <form onSubmit={handleAddMeetingTask} className="p-3 border-b border-gray-800 space-y-2 bg-gray-850">
+                <input
+                  type="text"
+                  required
+                  value={newMeetingTask.title}
+                  onChange={(e) => setNewMeetingTask({ ...newMeetingTask, title: e.target.value })}
+                  placeholder="Task title..."
+                  className="w-full bg-gray-800 text-white text-xs rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-500 border border-gray-700"
+                />
+                <div className="flex gap-2">
+                  <select
+                    value={newMeetingTask.priority}
+                    onChange={(e) => setNewMeetingTask({ ...newMeetingTask, priority: e.target.value })}
+                    className="flex-1 bg-gray-800 text-white text-xs rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 border border-gray-700"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                  </select>
+                  <input
+                    type="text"
+                    value={newMeetingTask.assigneeName}
+                    onChange={(e) => setNewMeetingTask({ ...newMeetingTask, assigneeName: e.target.value })}
+                    placeholder="Assignee"
+                    className="flex-1 bg-gray-800 text-white text-xs rounded-lg px-2 py-2 focus:outline-none focus:ring-2 focus:ring-green-500 placeholder-gray-500 border border-gray-700"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  disabled={addingMeetingTask || !newMeetingTask.title.trim()}
+                  className="w-full bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white text-xs py-2 rounded-lg font-medium transition flex items-center justify-center gap-1.5"
+                >
+                  {addingMeetingTask ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                  Add Task
+                </button>
+              </form>
+            )}
+
+            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+              {fetchingMeetingTasks ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 size={18} className="animate-spin text-green-500" />
+                </div>
+              ) : meetingTasks.length === 0 ? (
+                <div className="text-center py-8">
+                  <CheckSquare size={28} className="mx-auto mb-2 text-gray-600" />
+                  <p className="text-gray-500 text-xs">No tasks linked to this meeting yet</p>
+                </div>
+              ) : (
+                meetingTasks.map((task: any) => (
+                  <div key={task._id} className="p-3 bg-gray-800 rounded-xl border border-gray-700">
+                    <p className="text-white text-sm font-medium">{task.title}</p>
+                    <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                      <span className={`w-2 h-2 rounded-full ${getPriorityDot(task.priority)}`}></span>
+                      <span className="text-gray-400 text-xs">{task.assigneeName || 'Unassigned'}</span>
+                    </div>
+                    <select
+                      value={task.status}
+                      onChange={(e) => handleMeetingTaskStatusChange(task._id, e.target.value)}
+                      className="mt-2 w-full bg-gray-900 border border-gray-700 text-white text-xs rounded-lg px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-green-500"
+                    >
+                      {STATUS_OPTIONS.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ===== AI PANEL ===== */}
+        {showAI && (
+          <div className="w-80 bg-gray-900 flex flex-col border-l border-gray-800">
+
+            {/* AI Header */}
+            <div className="p-4 border-b border-gray-800 flex items-center justify-between">
+              <h2 className="text-white font-semibold text-sm flex items-center gap-2">
+                🤖 AI Assistant
+              </h2>
+              <button onClick={() => setShowAI(false)} className="text-gray-400 hover:text-white"><X size={16} /></button>
+            </div>
+
+            {/* AI Tabs */}
+            <div className="flex border-b border-gray-800">
+              <button
+                onClick={() => setAiTab('summary')}
+                className={`flex-1 py-2.5 text-xs font-medium transition border-b-2 ${
+                  aiTab === 'summary'
+                    ? 'border-purple-500 text-purple-400'
+                    : 'border-transparent text-gray-400 hover:text-purple-400'
+                }`}
+              >
+                📋 Summary
+              </button>
+              <button
+                onClick={() => setAiTab('chat')}
+                className={`flex-1 py-2.5 text-xs font-medium transition border-b-2 ${
+                  aiTab === 'chat'
+                    ? 'border-purple-500 text-purple-400'
+                    : 'border-transparent text-gray-400 hover:text-purple-400'
+                }`}
+              >
+                💬 Ask AI
+              </button>
+            </div>
+
+            {/* Summary Tab */}
+            {aiTab === 'summary' && (
+              <div className="flex-1 overflow-y-auto flex flex-col p-4 gap-3">
+                <p className="text-gray-400 text-xs">
+                  Paste transcript below, or leave empty to use chat messages automatically.
+                </p>
+                <textarea
+                  value={aiTranscript}
+                  onChange={(e) => setAiTranscript(e.target.value)}
+                  placeholder="Paste transcript here... (optional)"
+                  rows={4}
+                  className="w-full bg-gray-800 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder-gray-500 resize-none border border-gray-700"
+                />
+                <button
+                  onClick={generateAISummary}
+                  disabled={aiLoading}
+                  className="w-full bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white py-2.5 rounded-xl text-sm font-medium transition flex items-center justify-center gap-2"
+                >
+                  {aiLoading
+                    ? <><Loader2 size={14} className="animate-spin" /> Analyzing...</>
+                    : <>🧠 Generate Summary</>
+                  }
+                </button>
+
+                {/* AI Results */}
+                {aiSummary && (
+                  <div className="space-y-3">
+                    {aiSummary.error ? (
+                      <div className="bg-red-900 bg-opacity-30 border border-red-800 text-red-400 p-3 rounded-xl text-xs">
+                        ⚠️ {aiSummary.error}
+                      </div>
+                    ) : (
+                      <>
+                        {aiSummary.summary && (
+                          <div className="bg-gray-800 rounded-xl p-3">
+                            <p className="text-purple-400 text-xs font-medium mb-1">📄 Summary</p>
+                            <p className="text-gray-300 text-xs leading-relaxed">{aiSummary.summary}</p>
+                          </div>
+                        )}
+                        {aiSummary.keyPoints?.length > 0 && (
+                          <div className="bg-gray-800 rounded-xl p-3">
+                            <p className="text-purple-400 text-xs font-medium mb-2">🎯 Key Points</p>
+                            <ul className="space-y-1">
+                              {aiSummary.keyPoints.map((point: string, i: number) => (
+                                <li key={i} className="text-gray-300 text-xs flex items-start gap-1.5">
+                                  <span className="text-purple-400 mt-0.5">•</span> {point}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {aiSummary.actionItems?.length > 0 && (
+                          <div className="bg-gray-800 rounded-xl p-3">
+                            <p className="text-purple-400 text-xs font-medium mb-2">✅ Action Items</p>
+                            <ul className="space-y-2">
+                              {aiSummary.actionItems.map((item: any, i: number) => (
+                                <li key={i} className="text-xs border-l-2 border-purple-700 pl-2">
+                                  <p className="text-white">{item.task}</p>
+                                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                                    {item.owner && <span className="text-gray-400">👤 {item.owner}</span>}
+                                    {item.deadline && <span className="text-gray-400">📅 {item.deadline}</span>}
+                                    <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                                      item.priority === 'high' ? 'bg-red-900 text-red-300' :
+                                      item.priority === 'medium' ? 'bg-yellow-900 text-yellow-300' :
+                                      'bg-green-900 text-green-300'
+                                    }`}>{item.priority}</span>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                        {aiSummary.decisions?.length > 0 && (
+                          <div className="bg-gray-800 rounded-xl p-3">
+                            <p className="text-purple-400 text-xs font-medium mb-2">🔖 Decisions</p>
+                            <ul className="space-y-1">
+                              {aiSummary.decisions.map((d: string, i: number) => (
+                                <li key={i} className="text-gray-300 text-xs flex items-start gap-1.5">
+                                  <span className="text-green-400">✓</span> {d}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Ask AI Tab */}
+            {aiTab === 'chat' && (
+              <div className="flex-1 flex flex-col p-4 gap-3">
+                <p className="text-gray-400 text-xs">Ask anything about the meeting</p>
+
+                {/* Quick questions */}
+                <div className="flex flex-wrap gap-1.5">
+                  {['What was decided?', 'List action items', 'Key points?', 'Next steps?'].map(q => (
+                    <button
+                      key={q}
+                      onClick={() => setAiQuestion(q)}
+                      className="text-xs px-2.5 py-1 rounded-lg border border-gray-700 text-gray-300 hover:border-purple-500 hover:text-purple-400 transition"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+
+                {/* AI Answer */}
+                {aiAnswer && (
+                  <div className="bg-purple-900 bg-opacity-30 border border-purple-800 rounded-xl p-3 flex-1 overflow-y-auto">
+                    <p className="text-purple-400 text-xs font-medium mb-1">🤖 AI Answer</p>
+                    <p className="text-gray-300 text-xs leading-relaxed">{aiAnswer}</p>
+                  </div>
+                )}
+
+                {/* Input */}
+                <div className="flex gap-2 mt-auto">
+                  <input
+                    type="text"
+                    value={aiQuestion}
+                    onChange={(e) => setAiQuestion(e.target.value)}
+                    onKeyDown={(e) => e.key === 'Enter' && askAIQuestion()}
+                    placeholder="Ask AI about this meeting..."
+                    className="flex-1 bg-gray-800 text-white text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-purple-500 placeholder-gray-500 border border-gray-700"
+                  />
+                  <button
+                    onClick={askAIQuestion}
+                    disabled={aiChatLoading || !aiQuestion.trim()}
+                    className="w-9 h-9 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 text-white rounded-xl flex items-center justify-center transition"
+                  >
+                    {aiChatLoading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Controls */}
+      {/* ===== CONTROLS ===== */}
       <div className="bg-gray-900 border-t border-gray-800 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between max-w-2xl mx-auto">
 
@@ -944,7 +1276,7 @@ const MeetingRoom = () => {
               <span className="text-gray-500 text-xs">{isHandRaised ? 'Lower' : 'Raise'}</span>
             </button>
 
-            <button onClick={() => { setShowChat(!showChat); setShowParticipants(false); setUnreadMessages(0); }} className="flex flex-col items-center gap-0.5 relative">
+            <button onClick={() => { setShowChat(!showChat); setShowParticipants(false); setShowAI(false); setShowTasks(false); setUnreadMessages(0); }} className="flex flex-col items-center gap-0.5 relative">
               <div className={`w-11 h-11 rounded-full flex items-center justify-center transition ${showChat ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>
                 <MessageSquare size={18} className="text-white" />
                 {unreadMessages > 0 && !showChat && (
@@ -954,7 +1286,7 @@ const MeetingRoom = () => {
               <span className="text-gray-500 text-xs">Chat</span>
             </button>
 
-            <button onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); }} className="flex flex-col items-center gap-0.5">
+            <button onClick={() => { setShowParticipants(!showParticipants); setShowChat(false); setShowAI(false); setShowTasks(false); }} className="flex flex-col items-center gap-0.5">
               <div className={`w-11 h-11 rounded-full flex items-center justify-center transition ${showParticipants ? 'bg-blue-600' : 'bg-gray-800 hover:bg-gray-700'}`}>
                 <Users size={18} className="text-white" />
               </div>
