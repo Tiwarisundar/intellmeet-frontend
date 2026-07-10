@@ -1,35 +1,68 @@
-import { useEffect, useRef } from 'react';
-import { io, Socket } from 'socket.io-client';
-import useAuthStore from '../store/authStore';
+const { Server } = require("socket.io");
+const jwt = require("jsonwebtoken");
 
-const useSocket = () => {
-  const socketRef = useRef<Socket | null>(null);
-  const { accessToken } = useAuthStore();
+function initSocket(server) {
+  const io = new Server(server, {
+    cors: {
+      origin: [
+        "https://intellmeet-frontend.tiwarisundarm68.workers.dev",
+        "http://localhost:5173",
+        process.env.CLIENT_URL,
+      ].filter(Boolean),
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+    transports: ["websocket", "polling"],
+  });
 
-  useEffect(() => {
-    if (!accessToken) return;
+  // Authentication
+  io.use((socket, next) => {
+    try {
+      const token = socket.handshake.auth?.token;
 
-    // Socket connect karo
-    socketRef.current = io(import.meta.env.VITE_SOCKET_URL, {
-      auth: { token: accessToken },
-      transports: ['websocket']
+      if (!token) {
+        return next(new Error("Authentication required"));
+      }
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+      socket.user = decoded;
+      next();
+    } catch (err) {
+      next(new Error("Invalid token"));
+    }
+  });
+
+  io.on("connection", (socket) => {
+    console.log("✅ Socket Connected:", socket.id);
+
+    // User room
+    if (socket.user?.id) {
+      socket.join(socket.user.id);
+    }
+
+    // Join meeting
+    socket.on("join-meeting", (meetingId) => {
+      socket.join(meetingId);
+      console.log(`${socket.id} joined meeting ${meetingId}`);
     });
 
-    socketRef.current.on('connect', () => {
-      console.log('🔌 Socket connected:', socketRef.current?.id);
+    // Leave meeting
+    socket.on("leave-meeting", (meetingId) => {
+      socket.leave(meetingId);
     });
 
-    socketRef.current.on('disconnect', () => {
-      console.log('❌ Socket disconnected');
+    // Send message
+    socket.on("meeting-message", (data) => {
+      io.to(data.meetingId).emit("meeting-message", data);
     });
 
-    // Cleanup
-    return () => {
-      socketRef.current?.disconnect();
-    };
-  }, [accessToken]);
+    socket.on("disconnect", () => {
+      console.log("❌ Socket Disconnected:", socket.id);
+    });
+  });
 
-  return socketRef.current;
-};
+  return io;
+}
 
-export default useSocket;
+module.exports = initSocket;

@@ -872,15 +872,15 @@ const MeetingRoom = () => {
       <div className="flex flex-1 overflow-hidden">
 
         {/* Video Grid */}
-        <div className="flex-1 p-3 overflow-hidden relative">
+        <div className="flex-1 p-3 overflow-y-auto sm:overflow-hidden relative">
           <div className={`h-full grid gap-2 ${
             totalParticipants === 1 ? 'grid-cols-1' :
-            totalParticipants === 2 ? 'grid-cols-2' :
-            totalParticipants <= 4 ? 'grid-cols-2' : 'grid-cols-3'
+            totalParticipants === 2 ? 'grid-cols-1 sm:grid-cols-2' :
+            totalParticipants <= 4 ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
           }`}>
 
             {/* Local Video */}
-            <div className="bg-gray-900 rounded-2xl overflow-hidden relative border border-gray-800">
+            <div className="bg-gray-900 rounded-2xl overflow-hidden relative border border-gray-800 min-h-[200px] sm:min-h-0">
               <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
               {isVideoOff && !isScreenSharing && (
                 <div className="absolute inset-0 bg-gray-900 flex items-center justify-center">
@@ -899,7 +899,9 @@ const MeetingRoom = () => {
 
             {/* Remote Videos */}
             {remoteStreams.map(remote => (
-              <RemoteVideoTile key={remote.userId} remote={remote} />
+              <div key={remote.userId} className="min-h-[200px] sm:min-h-0">
+                <RemoteVideoTile remote={remote} />
+              </div>
             ))}
           </div>
 
