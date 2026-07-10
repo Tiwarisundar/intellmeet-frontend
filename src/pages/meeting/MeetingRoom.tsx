@@ -102,6 +102,7 @@ const MeetingRoom = () => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const screenStreamRef = useRef<MediaStream | null>(null);
+  const isScreenSharingRef = useRef(false);
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const chatEndRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
@@ -216,8 +217,20 @@ const MeetingRoom = () => {
       return peerConnectionsRef.current.get(remoteSocketId)!;
     }
     const pc = new RTCPeerConnection(ICE_SERVERS);
-    const stream = localStreamRef.current;
-    if (stream) stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+    // Always send mic audio from the camera stream.
+    const audioTrack = localStreamRef.current?.getAudioTracks()[0];
+    if (audioTrack && localStreamRef.current) pc.addTrack(audioTrack, localStreamRef.current);
+
+    // Send the SCREEN video track if a share is currently active (important for
+    // participants who join mid-share), otherwise send the camera video track.
+    if (isScreenSharingRef.current && screenStreamRef.current) {
+      const screenVideoTrack = screenStreamRef.current.getVideoTracks()[0];
+      if (screenVideoTrack) pc.addTrack(screenVideoTrack, screenStreamRef.current);
+    } else {
+      const cameraVideoTrack = localStreamRef.current?.getVideoTracks()[0];
+      if (cameraVideoTrack && localStreamRef.current) pc.addTrack(cameraVideoTrack, localStreamRef.current);
+    }
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
@@ -386,6 +399,7 @@ const MeetingRoom = () => {
     if (isScreenSharing) {
       screenStreamRef.current?.getTracks().forEach(t => t.stop());
       screenStreamRef.current = null;
+      isScreenSharingRef.current = false;
       setIsScreenSharing(false);
       setIsVideoOff(false);
       const camStream = await startLocalStream();
@@ -409,6 +423,7 @@ const MeetingRoom = () => {
           audio: true
         });
         screenStreamRef.current = screenStream;
+        isScreenSharingRef.current = true;
         setIsScreenSharing(true);
         setIsVideoOff(true);
         localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = false);
