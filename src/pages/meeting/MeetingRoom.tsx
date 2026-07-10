@@ -44,7 +44,7 @@ const MeetingRoom = () => {
 
   // Meeting
   const [meeting, setMeeting] = useState<any>(null);
-  const [participants, setParticipants] = useState<any[]>([]);
+  const [, setParticipants] = useState<any[]>([]);
   const [isHost, setIsHost] = useState(false);
 
   // Media
@@ -212,7 +212,7 @@ const MeetingRoom = () => {
   };
 
   // ==================== WEBRTC ====================
-  const createPeerConnection = (remoteSocketId: string, remoteUserId: string, remoteUserName: string) => {
+  const createPeerConnection = (remoteSocketId: string, _remoteUserId: string, remoteUserName: string) => {
     if (peerConnectionsRef.current.has(remoteSocketId)) {
       return peerConnectionsRef.current.get(remoteSocketId)!;
     }

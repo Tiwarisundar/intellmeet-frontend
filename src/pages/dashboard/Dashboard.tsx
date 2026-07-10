@@ -149,10 +149,6 @@ const Dashboard = () => {
 
   const handleLogout = () => { logout(); navigate('/login'); };
 
-  const scrollToTaskBoard = () => {
-    taskBoardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   const filteredMeetings = meetings.filter(m =>
     m.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     m.meetingCode.toLowerCase().includes(searchQuery.toLowerCase())
