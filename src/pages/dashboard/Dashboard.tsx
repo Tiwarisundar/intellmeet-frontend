@@ -317,46 +317,46 @@ const Dashboard = () => {
     <div className={`min-h-screen ${bg} transition-colors duration-200`}>
 
       {/* Navbar */}
-      <nav className={`${cardBg} border-b sticky top-0 z-20 shadow-sm px-6 py-4`}>
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
+      <nav className={`${cardBg} border-b sticky top-0 z-20 shadow-sm px-3 sm:px-6 py-3 sm:py-4`}>
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2">
 
           {/* Logo */}
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm">
-              <span className="text-lg">🤖</span>
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-600 rounded-xl flex items-center justify-center shadow-sm flex-shrink-0">
+              <span className="text-base sm:text-lg">🤖</span>
             </div>
-            <h1 className={`text-xl font-bold ${textPrimary}`}>IntellMeet</h1>
+            <h1 className={`text-base sm:text-xl font-bold ${textPrimary} truncate`}>IntellMeet</h1>
           </div>
 
           {/* Right side */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1.5 sm:gap-3 flex-shrink-0">
 
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
-              className={`w-9 h-9 rounded-xl flex items-center justify-center transition ${
+              className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition flex-shrink-0 ${
                 isDark
                   ? 'bg-gray-800 text-yellow-400 hover:bg-gray-700'
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
               title={isDark ? 'Light mode' : 'Dark mode'}
             >
-              {isDark ? <Sun size={18} /> : <Moon size={18} />}
+              {isDark ? <Sun size={16} /> : <Moon size={16} />}
             </button>
 
             {/* Notifications */}
             <div className="relative" ref={notifRef}>
               <button
                 onClick={() => setShowNotifications(!showNotifications)}
-                className={`w-9 h-9 rounded-xl flex items-center justify-center transition relative ${
+                className={`w-8 h-8 sm:w-9 sm:h-9 rounded-xl flex items-center justify-center transition relative flex-shrink-0 ${
                   isDark
                     ? 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                     : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
                 }`}
               >
-                <Bell size={18} />
+                <Bell size={16} />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
+                  <span className="absolute -top-1 -right-1 w-4 h-4 sm:w-5 sm:h-5 bg-red-500 rounded-full text-white text-[10px] sm:text-xs flex items-center justify-center font-bold">
                     {unreadCount > 9 ? '9+' : unreadCount}
                   </span>
                 )}
@@ -364,7 +364,7 @@ const Dashboard = () => {
 
               {/* Notification Dropdown */}
               {showNotifications && (
-                <div className={`absolute right-0 top-12 w-80 ${cardBg} border rounded-2xl shadow-xl z-50 overflow-hidden`}>
+                <div className={`absolute right-0 top-11 w-72 sm:w-80 ${cardBg} border rounded-2xl shadow-xl z-50 overflow-hidden`}>
                   <div className={`p-4 border-b ${isDark ? 'border-gray-800' : 'border-gray-100'} flex items-center justify-between`}>
                     <span className={`font-semibold text-sm ${textPrimary}`}>
                       Notifications
@@ -424,41 +424,42 @@ const Dashboard = () => {
               )}
             </div>
 
-            {/* User Profile */}
+            {/* User Profile — name hidden on very small screens */}
             <button
               onClick={() => navigate('/profile')}
-              className={`flex items-center gap-2 rounded-xl px-3 py-2 transition ${
+              className={`flex items-center gap-2 rounded-xl px-2 sm:px-3 py-1.5 sm:py-2 transition flex-shrink-0 ${
                 isDark ? 'bg-gray-800 hover:bg-gray-700' : 'bg-gray-100 hover:bg-gray-200'
               }`}
             >
               {user?.avatar ? (
-                <img src={user.avatar} alt="avatar" className="w-7 h-7 rounded-lg object-cover" />
+                <img src={user.avatar} alt="avatar" className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg object-cover" />
               ) : (
-                <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white text-sm font-bold">
+                <div className="w-6 h-6 sm:w-7 sm:h-7 bg-blue-600 rounded-lg flex items-center justify-center text-white text-xs sm:text-sm font-bold flex-shrink-0">
                   {user?.name?.charAt(0).toUpperCase()}
                 </div>
               )}
-              <span className={`text-sm font-medium ${textPrimary}`}>{user?.name}</span>
+              <span className={`hidden sm:inline text-sm font-medium ${textPrimary}`}>{user?.name}</span>
             </button>
 
-            {/* Logout */}
+            {/* Logout — icon only on mobile */}
             <button
               onClick={handleLogout}
-              className="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 px-3 py-2 rounded-xl transition"
+              className="flex items-center gap-2 text-sm text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 w-8 h-8 sm:w-auto sm:h-auto sm:px-3 sm:py-2 rounded-xl transition flex-shrink-0 justify-center"
+              title="Logout"
             >
-              <LogOut size={16} /> Logout
+              <LogOut size={16} /> <span className="hidden sm:inline">Logout</span>
             </button>
           </div>
         </div>
       </nav>
 
-      <div className="max-w-6xl mx-auto p-6">
+      <div className="max-w-6xl mx-auto p-3 sm:p-6">
 
         {/* Welcome Banner */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 mb-6 text-white shadow-lg">
-          <div className="flex items-center justify-between flex-wrap gap-4">
+        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-4 sm:p-6 mb-6 text-white shadow-lg">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-bold mb-1">
+              <h2 className="text-xl sm:text-2xl font-bold mb-1">
                 Good day, {user?.name?.split(' ')[0]}! 👋
               </h2>
               <p className="text-blue-100 text-sm">Ready to collaborate? Start or join a meeting.</p>
@@ -469,19 +470,19 @@ const Dashboard = () => {
                 <Brain size={16} /> AI Meeting Intelligence
               </button>
             </div>
-            <div className="flex items-center gap-3">
-              <div className="bg-white bg-opacity-15 rounded-xl px-4 py-2 text-center">
-                <div className="text-2xl font-bold">{meetings.length}</div>
+            <div className="flex items-center gap-2 sm:gap-3">
+              <div className="flex-1 sm:flex-initial bg-white bg-opacity-15 rounded-xl px-3 sm:px-4 py-2 text-center">
+                <div className="text-xl sm:text-2xl font-bold">{meetings.length}</div>
                 <div className="text-xs text-blue-100">Total</div>
               </div>
-              <div className="bg-white bg-opacity-15 rounded-xl px-4 py-2 text-center">
-                <div className="text-2xl font-bold">
+              <div className="flex-1 sm:flex-initial bg-white bg-opacity-15 rounded-xl px-3 sm:px-4 py-2 text-center">
+                <div className="text-xl sm:text-2xl font-bold">
                   {meetings.filter(m => m.status === 'active').length}
                 </div>
                 <div className="text-xs text-blue-100">Active</div>
               </div>
-              <div className="bg-white bg-opacity-15 rounded-xl px-4 py-2 text-center">
-                <div className="text-2xl font-bold">
+              <div className="flex-1 sm:flex-initial bg-white bg-opacity-15 rounded-xl px-3 sm:px-4 py-2 text-center">
+                <div className="text-xl sm:text-2xl font-bold">
                   {meetings.filter(m => m.status === 'ended').length}
                 </div>
                 <div className="text-xs text-blue-100">Ended</div>
