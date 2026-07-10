@@ -5,7 +5,6 @@ import {
   Users, X, Check
 } from 'lucide-react';
 import useThemeStore from '../../store/themeStore';
-import useAuthStore from '../../store/authStore';
 import { getAllTasks, createTask, updateTaskStatus, deleteTask } from '../../services/taskService';
 
 const COLUMNS = [
@@ -18,7 +17,6 @@ const COLUMNS = [
 const Workspace = () => {
   const navigate = useNavigate();
   const { isDark } = useThemeStore();
-  const { user } = useAuthStore();
 
   const [tasks, setTasks] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,12 +95,6 @@ const Workspace = () => {
 
   const getTasksByStatus = (status: string) =>
     tasks.filter(t => t.status === status);
-
-  const getPriorityColor = (priority: string) => {
-    if (priority === 'high') return 'bg-red-500';
-    if (priority === 'medium') return 'bg-yellow-500';
-    return 'bg-green-500';
-  };
 
   const getPriorityBadge = (priority: string) => {
     if (priority === 'high') return isDark ? 'bg-red-900 text-red-300' : 'bg-red-100 text-red-600';
