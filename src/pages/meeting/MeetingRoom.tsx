@@ -609,7 +609,6 @@ const MeetingRoom = () => {
   );
 };
 
-<<<<<<< HEAD
 interface SheetRowProps {
   icon: ReactNode;
   label: string;
