@@ -36,8 +36,10 @@ const colorForName = (name: string) => {
   return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 };
 
-// Replace with real participants from your call/session state
-const MOCK_PARTICIPANTS: Participant[] = [
+// This is the pool of people who WILL join over time — replace with real
+// socket/WebRTC "user-joined" events from your backend. None of these are
+// in the call yet; they get added one by one in the join-simulation effect below.
+const INCOMING_PARTICIPANTS: Participant[] = [
   { id: '1', name: 'Disha', isMuted: true },
   { id: '2', name: 'Kiran', isMuted: true },
   { id: '3', name: 'Manisha', isMuted: true },
@@ -53,12 +55,14 @@ const MeetingRoom = () => {
   const navigate = useNavigate();
   const { isDark } = useThemeStore();
 
-  const [participants] = useState<Participant[]>(MOCK_PARTICIPANTS);
+  // Grid starts EMPTY (or just "You") — people appear only when they actually join
+  const [participants, setParticipants] = useState<Participant[]>([]);
   const [micOn, setMicOn] = useState(false);
   const [cameraOn, setCameraOn] = useState(false);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [joinToast, setJoinToast] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+
 
   const meetingCode = 'ukj-mgcr-rwo';
 
@@ -129,11 +133,32 @@ const MeetingRoom = () => {
     ? 'bg-gray-800 border-gray-700 text-white placeholder-gray-500'
     : 'bg-gray-100 border-gray-200 text-gray-900 placeholder-gray-400';
 
-  // Demo: simulate a participant joining, replace with real socket/event data
+  // Demo: simulate participants joining one by one over time, each showing
+  // a "X joined" toast right before they appear in the grid.
+  // Replace this whole effect with your real socket/WebRTC "participant-joined"
+  // event listener that calls setParticipants(prev => [...prev, newPerson]).
   useEffect(() => {
-    const t = setTimeout(() => setJoinToast('Shravani Pathak joined'), 1500);
-    const clear = setTimeout(() => setJoinToast(null), 4500);
-    return () => { clearTimeout(t); clearTimeout(clear); };
+    const timers: ReturnType<typeof setTimeout>[] = [];
+
+    INCOMING_PARTICIPANTS.forEach((person, index) => {
+      const joinDelay = 1500 + index * 2200; // stagger each join
+
+      const toastTimer = setTimeout(() => {
+        setJoinToast(`${person.name} joined`);
+      }, joinDelay);
+
+      const addTimer = setTimeout(() => {
+        setParticipants(prev => [...prev, person]);
+      }, joinDelay + 200);
+
+      const clearToastTimer = setTimeout(() => {
+        setJoinToast(current => (current === `${person.name} joined` ? null : current));
+      }, joinDelay + 3000);
+
+      timers.push(toastTimer, addTimer, clearToastTimer);
+    });
+
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   const handleScroll = () => {
@@ -199,6 +224,15 @@ const MeetingRoom = () => {
         onScroll={handleScroll}
         className="flex-1 overflow-y-auto px-3 pb-3 relative"
       >
+        {participants.length === 0 ? (
+          <div className="h-full min-h-[40vh] flex flex-col items-center justify-center text-center px-6">
+            <div className={`w-14 h-14 rounded-full flex items-center justify-center mb-3 ${pillBg}`}>
+              <Video size={22} className={textSecondary} />
+            </div>
+            <p className={`text-sm font-medium ${textPrimary}`}>Waiting for others to join</p>
+            <p className={`text-xs ${textSecondary} mt-1`}>Share the meeting code so others can join</p>
+          </div>
+        ) : (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2.5">
           {participants.map((p) => (
             <div
@@ -226,6 +260,7 @@ const MeetingRoom = () => {
             </div>
           ))}
         </div>
+        )}
 
         {/* Join toast */}
         {joinToast && (
@@ -634,4 +669,5 @@ const SheetRow = ({ icon, label, onClick, active, chevron, danger, textPrimary, 
     {chevron && <ChevronRight size={16} className={textSecondary} />}
   </button>
 );
+
 export default MeetingRoom;
