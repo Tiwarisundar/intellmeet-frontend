@@ -634,8 +634,4 @@ const SheetRow = ({ icon, label, onClick, active, chevron, danger, textPrimary, 
     {chevron && <ChevronRight size={16} className={textSecondary} />}
   </button>
 );
-
 export default MeetingRoom;
-
-export default MeetingRoom;
-
