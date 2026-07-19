@@ -33,7 +33,7 @@ const MeetingRoom = () => {
 
   // Meeting
   const [meeting, setMeeting] = useState<any>(null);
-  const [participants, setParticipants] = useState<any[]>([]);
+  const [, setParticipants] = useState<any[]>([]);
   const [isHost, setIsHost] = useState(false);
 
   // Media
