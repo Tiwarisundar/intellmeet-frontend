@@ -7,7 +7,7 @@ import {
   UserCheck, UserX, Hand, Monitor, MonitorOff,
   Settings, Flag, ChevronUp, Loader2,
   CheckSquare, Plus, Volume2, VolumeX,
-  Smartphone, Captions, MoreHorizontal
+  Smartphone, Captions, MoreHorizontal, Smile
 } from 'lucide-react';
 import useAuthStore from '../../store/authStore';
 import { getMeeting, endMeeting } from '../../services/meetingService';
@@ -24,7 +24,10 @@ const ICE_SERVERS = {
   ]
 };
 
+const REACTION_EMOJIS = ['👍', '❤️', '😂', '👏', '🎉', '😮'];
+
 interface RemoteStream { userId: string; userName: string; stream: MediaStream; }
+interface FloatingReaction { id: number; emoji: string; }
 
 const MeetingRoom = () => {
   const { id } = useParams();
@@ -67,6 +70,10 @@ const MeetingRoom = () => {
   const [captionText, setCaptionText] = useState('');
   const [notification, setNotification] = useState<string | null>(null);
 
+  // Reactions (Google Meet style floating emojis)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [floatingReactions, setFloatingReactions] = useState<FloatingReaction[]>([]);
+
   // On-the-go mode (mobile portrait layout)
   const [onTheGo, setOnTheGo] = useState(false);
 
@@ -104,6 +111,7 @@ const MeetingRoom = () => {
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map());
   const chatEndRef = useRef<HTMLDivElement>(null);
   const moreMenuRef = useRef<HTMLDivElement>(null);
+  const emojiMenuRef = useRef<HTMLDivElement>(null);
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
   // Helpers
@@ -150,6 +158,8 @@ const MeetingRoom = () => {
     const handleOutside = (e: MouseEvent) => {
       if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node))
         setShowMoreMenu(false);
+      if (emojiMenuRef.current && !emojiMenuRef.current.contains(e.target as Node))
+        setShowEmojiPicker(false);
     };
     document.addEventListener('mousedown', handleOutside);
     return () => document.removeEventListener('mousedown', handleOutside);
@@ -182,8 +192,12 @@ const MeetingRoom = () => {
         const audio = await navigator.mediaDevices.getUserMedia({ audio: true });
         localStreamRef.current = audio;
         setIsVideoOff(true);
+        showToast('⚠️ Camera not available — joined with audio only. Tap camera icon to retry.');
         return audio;
-      } catch { return null; }
+      } catch {
+        showToast('❌ Camera & mic permission denied — enable them in browser settings');
+        return null;
+      }
     }
   };
 
@@ -335,6 +349,12 @@ const MeetingRoom = () => {
       setCaptionText(`${userName}: ${text}`);
       setTimeout(() => setCaptionText(''), 4500);
     });
+
+    // Reactions (Google Meet style floating emojis)
+    socketRef.current.on('receive-reaction', ({ emoji }) => {
+      spawnFloatingReaction(emoji);
+    });
+
     socketRef.current.on('join-request', (req) => setJoinRequests(prev => [...prev, req]));
     socketRef.current.on('join-approved', () => {
       setWaitingForApproval(false);
@@ -372,8 +392,42 @@ const MeetingRoom = () => {
     showToast(isMuted ? '🎤 Microphone on' : '🔇 Microphone muted');
   };
 
-  const toggleVideo = () => {
-    localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = isVideoOff);
+  // Fixed: if no video track exists yet (initial getUserMedia video failed),
+  // request camera fresh instead of silently no-op'ing on an empty track list.
+  const toggleVideo = async () => {
+    const existingTrack = localStreamRef.current?.getVideoTracks()[0];
+
+    if (!existingTrack) {
+      try {
+        const camStream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720 }
+        });
+        const newTrack = camStream.getVideoTracks()[0];
+
+        if (!localStreamRef.current) {
+          localStreamRef.current = camStream;
+        } else {
+          localStreamRef.current.addTrack(newTrack);
+        }
+        if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+
+        peerConnectionsRef.current.forEach(async (pc) => {
+          const sender = pc.getSenders().find(s => s.track === null || s.track?.kind === 'video');
+          if (sender) await sender.replaceTrack(newTrack);
+          else pc.addTrack(newTrack, localStreamRef.current!);
+        });
+
+        setIsVideoOff(false);
+        socketRef.current?.emit('toggle-video', { meetingId: id, userId: user?.id, isVideoOff: false });
+        showToast('📷 Camera on');
+      } catch (e) {
+        console.error('Camera enable error:', e);
+        showToast('❌ Camera permission denied — check browser site settings');
+      }
+      return;
+    }
+
+    existingTrack.enabled = isVideoOff;
     setIsVideoOff(!isVideoOff);
     socketRef.current?.emit('toggle-video', { meetingId: id, userId: user?.id, isVideoOff: !isVideoOff });
     showToast(isVideoOff ? '📷 Camera on' : '📷 Camera off');
@@ -387,6 +441,7 @@ const MeetingRoom = () => {
     showToast(newState ? '🔇 Speaker muted' : '🔊 Speaker on');
   };
 
+  // Fixed: added device/browser support check + clearer error surfacing
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
       screenStreamRef.current?.getTracks().forEach(t => t.stop());
@@ -406,29 +461,38 @@ const MeetingRoom = () => {
       }
       socketRef.current?.emit('screen-share-stopped', { meetingId: id, userId: user?.id });
       showToast('🖥️ Screen share stopped — camera restored');
-    } else {
-      try {
-        const screen = await navigator.mediaDevices.getDisplayMedia({
-          video: { width: 1920, height: 1080, frameRate: 30 } as any,
-          audio: true
-        });
-        screenStreamRef.current = screen;
-        isScreenSharingRef.current = true;
-        setIsScreenSharing(true);
-        setIsVideoOff(true);
-        localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = false);
-        const svt = screen.getVideoTracks()[0];
-        peerConnectionsRef.current.forEach(async (pc) => {
-          const vs = pc.getSenders().find(s => s.track?.kind === 'video');
-          if (vs && svt) await vs.replaceTrack(svt);
-        });
-        if (localVideoRef.current) localVideoRef.current.srcObject = screen;
-        svt.onended = () => toggleScreenShare();
-        socketRef.current?.emit('screen-share-started', { meetingId: id, userId: user?.id, userName: user?.name });
-        showToast('🖥️ Screen sharing started');
-      } catch (e: any) {
-        if (e.name !== 'NotAllowedError') showToast('❌ Screen share failed');
-      }
+      return;
+    }
+
+    if (!navigator.mediaDevices?.getDisplayMedia) {
+      showToast('❌ Screen share not supported in this browser');
+      return;
+    }
+
+    try {
+      const screen = await navigator.mediaDevices.getDisplayMedia({
+        video: { width: 1920, height: 1080, frameRate: 30 } as any,
+        audio: true
+      });
+      screenStreamRef.current = screen;
+      isScreenSharingRef.current = true;
+      setIsScreenSharing(true);
+      setIsVideoOff(true);
+      localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = false);
+      const svt = screen.getVideoTracks()[0];
+      peerConnectionsRef.current.forEach(async (pc) => {
+        const vs = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (vs && svt) await vs.replaceTrack(svt);
+        else if (svt) pc.addTrack(svt, screen);
+      });
+      if (localVideoRef.current) localVideoRef.current.srcObject = screen;
+      svt.onended = () => toggleScreenShare();
+      socketRef.current?.emit('screen-share-started', { meetingId: id, userId: user?.id, userName: user?.name });
+      showToast('🖥️ Screen sharing started');
+    } catch (e: any) {
+      console.error('Screen share error:', e);
+      if (e.name === 'NotAllowedError') showToast('Screen share cancelled');
+      else showToast(`❌ Screen share failed: ${e.name || 'unknown error'}`);
     }
   };
 
@@ -447,6 +511,21 @@ const MeetingRoom = () => {
   const toggleCaptions = () => {
     setCaptions(!captions);
     showToast(captions ? 'CC off' : '💬 Live captions on');
+  };
+
+  // ==================== REACTIONS ====================
+  const spawnFloatingReaction = (emoji: string) => {
+    const rid = Date.now() + Math.random();
+    setFloatingReactions(prev => [...prev, { id: rid, emoji }]);
+    setTimeout(() => setFloatingReactions(prev => prev.filter(r => r.id !== rid)), 2500);
+  };
+
+  const sendReaction = (emoji: string) => {
+    socketRef.current?.emit('send-reaction', {
+      meetingId: id, emoji, userId: user?.id, userName: user?.name
+    });
+    spawnFloatingReaction(emoji);
+    setShowEmojiPicker(false);
   };
 
   const sendMessage = () => {
@@ -642,7 +721,7 @@ const MeetingRoom = () => {
 
       {/* ===== TOAST ===== */}
       {notification && (
-        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[100] bg-gray-800 text-white px-4 py-2 rounded-full text-xs shadow-xl border border-gray-700 max-w-[85vw] text-center pointer-events-none">
+        <div className="fixed top-14 left-1/2 -translate-x-1/2 z-[100] bg-gray-800 text-white px-4 py-2 rounded-full text-xs sm:text-sm shadow-xl border border-gray-700 max-w-[85vw] sm:max-w-md text-center pointer-events-none">
           {notification}
         </div>
       )}
@@ -827,7 +906,7 @@ const MeetingRoom = () => {
           {/* Left: title + badges */}
           <div className="flex items-center gap-2 min-w-0 overflow-x-auto no-scrollbar">
             <div className="w-7 h-7 bg-blue-600 rounded-lg flex items-center justify-center text-sm flex-shrink-0">🤖</div>
-            <h1 className={`text-white font-semibold truncate max-w-[90px] sm:max-w-[160px] ${onTheGo ? 'text-xs' : 'text-sm'}`}>
+            <h1 className={`text-white font-semibold truncate max-w-[90px] sm:max-w-[220px] lg:max-w-[320px] ${onTheGo ? 'text-xs' : 'text-sm'}`}>
               {meeting?.title || 'Meeting'}
             </h1>
             {isHost && !onTheGo && (
@@ -886,7 +965,7 @@ const MeetingRoom = () => {
       <div className="flex flex-1 overflow-hidden">
 
         {/* ===== VIDEO GRID ===== */}
-        <div className={`flex-1 p-2 sm:p-3 overflow-hidden relative ${anyPanelOpen && !onTheGo ? 'hidden sm:block' : 'block'}`}>
+        <div className={`flex-1 p-2 sm:p-3 lg:p-4 overflow-hidden relative ${anyPanelOpen && !onTheGo ? 'hidden sm:block' : 'block'}`}>
           {onTheGo ? (
             // On-the-go: stack vertically, compact
             <div className="h-full flex flex-col gap-2">
@@ -911,11 +990,13 @@ const MeetingRoom = () => {
               ))}
             </div>
           ) : (
-            // Normal grid
-            <div className={`h-full grid gap-2 ${
+            // Normal grid — scales cleanly from mobile up to large desktop
+            <div className={`h-full grid gap-2 sm:gap-3 ${
               totalParticipants === 1 ? 'grid-cols-1' :
               totalParticipants === 2 ? 'grid-cols-1 sm:grid-cols-2' :
-              totalParticipants <= 4 ? 'grid-cols-2' : 'grid-cols-2 sm:grid-cols-3'
+              totalParticipants <= 4 ? 'grid-cols-2' :
+              totalParticipants <= 6 ? 'grid-cols-2 sm:grid-cols-3' :
+              'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4'
             }`}>
               <div className="bg-gray-900 rounded-xl sm:rounded-2xl overflow-hidden relative border border-gray-800 aspect-video sm:aspect-auto">
                 <video ref={localVideoRef} autoPlay muted playsInline className="w-full h-full object-cover" />
@@ -947,11 +1028,24 @@ const MeetingRoom = () => {
               {captionText}
             </div>
           )}
+
+          {/* Floating reactions (Google Meet style) */}
+          <div className="absolute inset-0 pointer-events-none overflow-hidden">
+            {floatingReactions.map(r => (
+              <span
+                key={r.id}
+                className="absolute text-3xl sm:text-4xl float-emoji"
+                style={{ left: `${15 + Math.random() * 70}%`, bottom: '8%' }}
+              >
+                {r.emoji}
+              </span>
+            ))}
+          </div>
         </div>
 
         {/* ===== CHAT PANEL ===== */}
         {showChat && (
-          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-72 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
+          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-72 lg:w-80 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
             <div className="p-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
               <h2 className="text-white font-semibold text-sm flex items-center gap-2">
                 <MessageSquare size={16} className="text-blue-400" /> Chat
@@ -1003,7 +1097,7 @@ const MeetingRoom = () => {
 
         {/* ===== PARTICIPANTS PANEL ===== */}
         {showParticipants && (
-          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-60 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
+          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-60 lg:w-72 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
             <div className="p-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
               <h2 className="text-white font-semibold text-sm flex items-center gap-2">
                 <Users size={16} className="text-blue-400" /> People ({totalParticipants})
@@ -1044,7 +1138,7 @@ const MeetingRoom = () => {
 
         {/* ===== TASKS PANEL ===== */}
         {showTasks && (
-          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-80 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
+          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-80 lg:w-96 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
             <div className="p-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
               <h2 className="text-white font-semibold text-sm flex items-center gap-2">
                 <CheckSquare size={16} className="text-green-400" /> Tasks
@@ -1123,7 +1217,7 @@ const MeetingRoom = () => {
 
         {/* ===== AI PANEL ===== */}
         {showAI && (
-          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-80 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
+          <div className={`${onTheGo ? 'fixed inset-0 z-40' : 'fixed inset-0 sm:static sm:inset-auto z-40 sm:z-auto'} w-full sm:w-80 lg:w-96 bg-gray-900 flex flex-col sm:border-l border-gray-800`}>
             <div className="p-4 border-b border-gray-800 flex items-center justify-between flex-shrink-0">
               <h2 className="text-white font-semibold text-sm flex items-center gap-2">🤖 AI Assistant</h2>
               <button onClick={() => setShowAI(false)} className="text-gray-400 hover:text-white p-1"><X size={18} /></button>
@@ -1252,7 +1346,7 @@ const MeetingRoom = () => {
 
       {/* ===== CONTROLS BAR ===== */}
       <div className={`bg-gray-900 border-t border-gray-800 flex-shrink-0 ${onTheGo ? 'px-2 py-2' : 'px-2 sm:px-4 py-2 sm:py-3'}`}>
-        <div className="flex items-center justify-between max-w-2xl mx-auto gap-1">
+        <div className="flex items-center justify-between max-w-2xl lg:max-w-3xl mx-auto gap-1">
 
           {/* LEFT: Mic, Video, Screen */}
           <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
@@ -1270,11 +1364,31 @@ const MeetingRoom = () => {
             </CtrlBtn>
           </div>
 
-          {/* CENTER: Hand, Chat, People, CC */}
+          {/* CENTER: Hand, Reactions, Chat, People, CC */}
           <div className="flex items-center gap-1 sm:gap-2 flex-shrink-0">
             <CtrlBtn onClick={toggleHand} colored={isHandRaised ? 'yellow' : undefined} label={isHandRaised ? 'Lower' : 'Raise'} onTheGo={onTheGo} className="hidden xs:flex">
               <Hand size={16} />
             </CtrlBtn>
+
+            {/* Emoji reactions */}
+            <div className="relative flex-shrink-0" ref={emojiMenuRef}>
+              <CtrlBtn onClick={() => setShowEmojiPicker(!showEmojiPicker)} colored={showEmojiPicker ? 'gray' : undefined} label="React" onTheGo={onTheGo}>
+                <Smile size={16} />
+              </CtrlBtn>
+              {showEmojiPicker && (
+                <div className="absolute bottom-14 left-1/2 -translate-x-1/2 bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl p-2 flex gap-1 z-50">
+                  {REACTION_EMOJIS.map(e => (
+                    <button
+                      key={e}
+                      onClick={() => sendReaction(e)}
+                      className="text-2xl w-9 h-9 flex items-center justify-center hover:bg-gray-700 rounded-lg active:scale-90 transition"
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <CtrlBtn onClick={() => { closeAllPanels(); setShowChat(true); setUnreadMessages(0); }}
               colored={showChat ? 'blue' : undefined} label="Chat" onTheGo={onTheGo} badge={unreadMessages > 0 && !showChat ? unreadMessages : undefined}>
@@ -1354,6 +1468,14 @@ const MeetingRoom = () => {
           .xs\\:flex { display: flex; }
           .xs\\:hidden { display: none; }
           .xs\\:inline { display: inline; }
+        }
+        @keyframes floatUp {
+          0% { transform: translateY(0) scale(0.5); opacity: 0; }
+          15% { opacity: 1; transform: translateY(-20px) scale(1.2); }
+          100% { transform: translateY(-240px) scale(1); opacity: 0; }
+        }
+        .float-emoji {
+          animation: floatUp 2.5s ease-out forwards;
         }
       `}</style>
     </div>
