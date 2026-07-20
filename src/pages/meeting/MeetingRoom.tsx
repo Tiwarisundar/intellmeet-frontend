@@ -77,6 +77,14 @@ const MeetingRoom = () => {
   // On-the-go mode (mobile portrait layout)
   const [onTheGo, setOnTheGo] = useState(false);
 
+  // Screen sharing (getDisplayMedia) is a desktop-browser-only feature — Android
+  // Chrome and iOS Safari don't expose it at all. Detect once so we can hide the
+  // button entirely on devices that can never support it, instead of showing a
+  // confusing "not supported" error after the user taps it.
+  const [screenShareSupported] = useState(
+    () => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia
+  );
+
   // Report
   const [reportReason, setReportReason] = useState('');
   const [reportSubmitted, setReportSubmitted] = useState(false);
