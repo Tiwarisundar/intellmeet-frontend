@@ -115,6 +115,19 @@ const MeetingRoom = () => {
   const remoteVideoRefs = useRef<Map<string, HTMLVideoElement>>(new Map());
 
   // Helpers
+  // Forces the <video> element to actually re-render the stream — some browsers
+  // silently no-op when srcObject is reassigned to the SAME MediaStream reference
+  // (e.g. after adding a track to an already-attached stream), leaving the local
+  // preview blank even though the track itself is live.
+  const attachStream = (el: HTMLVideoElement | null, stream: MediaStream | null) => {
+    if (!el) return;
+    el.srcObject = null;
+    if (stream) {
+      el.srcObject = stream;
+      el.play?.().catch(() => {});
+    }
+  };
+
   const getJoinCount = () => parseInt(localStorage.getItem(`im_join_${id}`) || '0');
   const incrementJoinCount = () => {
     const c = getJoinCount() + 1;
@@ -185,7 +198,7 @@ const MeetingRoom = () => {
         audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 }
       });
       localStreamRef.current = stream;
-      if (localVideoRef.current) localVideoRef.current.srcObject = stream;
+      attachStream(localVideoRef.current, stream);
       return stream;
     } catch {
       try {
@@ -409,7 +422,7 @@ const MeetingRoom = () => {
         } else {
           localStreamRef.current.addTrack(newTrack);
         }
-        if (localVideoRef.current) localVideoRef.current.srcObject = localStreamRef.current;
+        attachStream(localVideoRef.current, localStreamRef.current);
 
         peerConnectionsRef.current.forEach(async (pc) => {
           const sender = pc.getSenders().find(s => s.track === null || s.track?.kind === 'video');
@@ -485,7 +498,7 @@ const MeetingRoom = () => {
         if (vs && svt) await vs.replaceTrack(svt);
         else if (svt) pc.addTrack(svt, screen);
       });
-      if (localVideoRef.current) localVideoRef.current.srcObject = screen;
+      attachStream(localVideoRef.current, screen);
       svt.onended = () => toggleScreenShare();
       socketRef.current?.emit('screen-share-started', { meetingId: id, userId: user?.id, userName: user?.name });
       showToast('🖥️ Screen sharing started');
