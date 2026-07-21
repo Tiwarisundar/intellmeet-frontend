@@ -1380,9 +1380,11 @@ const MeetingRoom = () => {
             <CtrlBtn onClick={toggleSound} active={!isSoundOff} danger={isSoundOff} label={isSoundOff ? 'Sound' : 'Sound'} onTheGo={onTheGo} className="hidden xs:flex">
               {isSoundOff ? <VolumeX size={16} /> : <Volume2 size={16} />}
             </CtrlBtn>
-            <CtrlBtn onClick={toggleScreenShare} active={!isScreenSharing} colored={isScreenSharing ? 'blue' : undefined} label={isScreenSharing ? 'Stop' : 'Share'} onTheGo={onTheGo} className="hidden sm:flex">
-              {isScreenSharing ? <MonitorOff size={16} /> : <Monitor size={16} />}
-            </CtrlBtn>
+            {screenShareSupported && (
+              <CtrlBtn onClick={toggleScreenShare} active={!isScreenSharing} colored={isScreenSharing ? 'blue' : undefined} label={isScreenSharing ? 'Stop' : 'Share'} onTheGo={onTheGo} className="hidden sm:flex">
+                {isScreenSharing ? <MonitorOff size={16} /> : <Monitor size={16} />}
+              </CtrlBtn>
+            )}
           </div>
 
           {/* CENTER: Hand, Reactions, Chat, People, CC */}
@@ -1391,9 +1393,9 @@ const MeetingRoom = () => {
               <Hand size={16} />
             </CtrlBtn>
 
-            {/* Emoji reactions */}
+            {/* Emoji reactions — hidden on very small phones to avoid overflow; reachable via More menu there */}
             <div className="relative flex-shrink-0" ref={emojiMenuRef}>
-              <CtrlBtn onClick={() => setShowEmojiPicker(!showEmojiPicker)} colored={showEmojiPicker ? 'gray' : undefined} label="React" onTheGo={onTheGo}>
+              <CtrlBtn onClick={() => setShowEmojiPicker(!showEmojiPicker)} colored={showEmojiPicker ? 'gray' : undefined} label="React" onTheGo={onTheGo} className="hidden xs:flex">
                 <Smile size={16} />
               </CtrlBtn>
               {showEmojiPicker && (
@@ -1433,9 +1435,14 @@ const MeetingRoom = () => {
               {showMoreMenu && (
                 <div className="absolute bottom-14 right-0 sm:left-1/2 sm:right-auto sm:-translate-x-1/2 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden w-48 z-50">
                   {/* Mobile-only items */}
-                  <button onClick={() => { toggleScreenShare(); setShowMoreMenu(false); }} className="w-full sm:hidden flex items-center gap-3 px-4 py-3 text-gray-200 hover:bg-gray-700 text-sm active:bg-gray-700">
-                    <Monitor size={14} className="text-blue-400" />
-                    {isScreenSharing ? 'Stop sharing' : 'Share screen'}
+                  {screenShareSupported && (
+                    <button onClick={() => { toggleScreenShare(); setShowMoreMenu(false); }} className="w-full sm:hidden flex items-center gap-3 px-4 py-3 text-gray-200 hover:bg-gray-700 text-sm active:bg-gray-700">
+                      <Monitor size={14} className="text-blue-400" />
+                      {isScreenSharing ? 'Stop sharing' : 'Share screen'}
+                    </button>
+                  )}
+                  <button onClick={() => { setShowMoreMenu(false); setShowEmojiPicker(true); }} className="w-full xs:hidden flex items-center gap-3 px-4 py-3 text-gray-200 hover:bg-gray-700 text-sm">
+                    <Smile size={14} className="text-yellow-400" /> React
                   </button>
                   <button onClick={() => { toggleHand(); setShowMoreMenu(false); }} className="w-full xs:hidden flex items-center gap-3 px-4 py-3 text-gray-200 hover:bg-gray-700 text-sm">
                     <Hand size={14} className="text-yellow-400" />
