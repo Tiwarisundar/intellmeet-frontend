@@ -202,7 +202,7 @@ const MeetingRoom = () => {
   const startLocalStream = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 1280, height: 720 },
+        video: { width: 1280, height: 720, facingMode: 'user' },
         audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 44100 }
       });
       localStreamRef.current = stream;
@@ -421,7 +421,7 @@ const MeetingRoom = () => {
     if (!existingTrack) {
       try {
         const camStream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 1280, height: 720 }
+          video: { width: 1280, height: 720, facingMode: 'user' }
         });
         const newTrack = camStream.getVideoTracks()[0];
 
