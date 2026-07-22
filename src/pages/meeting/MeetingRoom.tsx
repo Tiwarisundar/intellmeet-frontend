@@ -249,16 +249,36 @@ const MeetingRoom = () => {
 
     const pc = new RTCPeerConnection(ICE_SERVERS);
 
+    // Audio — reserve a sender slot even if no track is available yet
     const audioTrack = localStreamRef.current?.getAudioTracks()[0];
-    if (audioTrack && localStreamRef.current) pc.addTrack(audioTrack, localStreamRef.current);
-
-    if (isScreenSharingRef.current && screenStreamRef.current) {
-      const svt = screenStreamRef.current.getVideoTracks()[0];
-      if (svt) pc.addTrack(svt, screenStreamRef.current);
+    if (audioTrack && localStreamRef.current) {
+      pc.addTrack(audioTrack, localStreamRef.current);
     } else {
-      const cvt = localStreamRef.current?.getVideoTracks()[0];
-      if (cvt && localStreamRef.current) pc.addTrack(cvt, localStreamRef.current);
+      pc.addTransceiver('audio', { direction: 'sendrecv' });
     }
+
+    // Video — ALWAYS reserve a sender slot up front (even with no track yet), so
+    // toggling camera on or starting screen share later can use replaceTrack()
+    // instead of addTrack(). addTrack() after the initial handshake requires a
+    // full renegotiation (offer/answer) that this app never performs, which was
+    // why screen share (and late camera-on) silently never reached remote peers.
+    const initialVideoTrack = isScreenSharingRef.current && screenStreamRef.current
+      ? screenStreamRef.current.getVideoTracks()[0]
+      : localStreamRef.current?.getVideoTracks()[0];
+
+    let videoSender: RTCRtpSender;
+    if (initialVideoTrack) {
+      videoSender = pc.addTrack(
+        initialVideoTrack,
+        isScreenSharingRef.current ? screenStreamRef.current! : localStreamRef.current!
+      );
+    } else {
+      videoSender = pc.addTransceiver('video', { direction: 'sendrecv' }).sender;
+    }
+    // Stash a direct reference so toggleVideo/toggleScreenShare never have to
+    // guess which sender is "the video one" by inspecting .track (which is null
+    // for a fresh transceiver and would otherwise be missed).
+    (pc as any)._videoSender = videoSender;
 
     pc.onicecandidate = (e) => {
       if (e.candidate)
@@ -433,9 +453,8 @@ const MeetingRoom = () => {
         attachStream(localVideoRef.current, localStreamRef.current);
 
         peerConnectionsRef.current.forEach(async (pc) => {
-          const sender = pc.getSenders().find(s => s.track === null || s.track?.kind === 'video');
+          const sender = (pc as any)._videoSender as RTCRtpSender | undefined;
           if (sender) await sender.replaceTrack(newTrack);
-          else pc.addTrack(newTrack, localStreamRef.current!);
         });
 
         setIsVideoOff(false);
@@ -473,9 +492,8 @@ const MeetingRoom = () => {
       const cam = await startLocalStream();
       if (cam) {
         peerConnectionsRef.current.forEach(async (pc) => {
-          const senders = pc.getSenders();
-          const vs = senders.find(s => s.track?.kind === 'video');
-          const as = senders.find(s => s.track?.kind === 'audio');
+          const vs = (pc as any)._videoSender as RTCRtpSender | undefined;
+          const as = pc.getSenders().find(s => s.track?.kind === 'audio');
           if (vs && cam.getVideoTracks()[0]) await vs.replaceTrack(cam.getVideoTracks()[0]);
           if (as && cam.getAudioTracks()[0]) await as.replaceTrack(cam.getAudioTracks()[0]);
         });
@@ -502,9 +520,8 @@ const MeetingRoom = () => {
       localStreamRef.current?.getVideoTracks().forEach(t => t.enabled = false);
       const svt = screen.getVideoTracks()[0];
       peerConnectionsRef.current.forEach(async (pc) => {
-        const vs = pc.getSenders().find(s => s.track?.kind === 'video');
+        const vs = (pc as any)._videoSender as RTCRtpSender | undefined;
         if (vs && svt) await vs.replaceTrack(svt);
-        else if (svt) pc.addTrack(svt, screen);
       });
       attachStream(localVideoRef.current, screen);
       svt.onended = () => toggleScreenShare();
